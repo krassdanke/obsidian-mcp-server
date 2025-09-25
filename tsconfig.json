@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
-    "target": "ES2021",
-    "module": "ES2022",
+    "target": "ES2022",
+    "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "outDir": "dist",
     "rootDir": "src",
@@ -10,7 +10,8 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "types": ["node"],
-    "sourceMap": true
+    "sourceMap": true,
+    "inlineSources": true
   },
   "include": ["src/**/*.ts"]
 }

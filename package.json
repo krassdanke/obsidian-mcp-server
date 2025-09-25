@@ -11,16 +11,27 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "dev": "node --enable-source-maps --loader ts-node/esm src/index.ts",
-    "dev:watch": "node --watch --enable-source-maps --loader ts-node/esm src/index.ts",
+    "dev": "node --enable-source-maps --import 'data:text/javascript,import { register } from \"node:module\"; import { pathToFileURL } from \"node:url\"; register(\"ts-node/esm\", pathToFileURL(\"./\"));' src/index.ts",
+    "dev:watch": "node --watch --enable-source-maps --import 'data:text/javascript,import { register } from \"node:module\"; import { pathToFileURL } from \"node:url\"; register(\"ts-node/esm\", pathToFileURL(\"./\"));' src/index.ts",
     "health": "node dist/health.js",
     "health:dev": "node --enable-source-maps --loader ts-node/esm src/health.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^0.2.0"
+    "@modelcontextprotocol/sdk": "^1.18.1"
   },
   "devDependencies": {
     "ts-node": "^10.9.2",
     "typescript": "^5.6.2"
+  },
+  "ts-node": {
+    "esm": true,
+    "experimentalResolver": true,
+    "transpileOnly": true,
+    "compilerOptions": {
+      "module": "NodeNext",
+      "moduleResolution": "NodeNext",
+      "sourceMap": true,
+      "inlineSources": true
+    }
   }
 }

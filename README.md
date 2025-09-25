@@ -30,9 +30,14 @@ bun run dev
 ```
 
 ## Container build and run
-- Build the image and start the container:
+- Build the image and start the container (exposes MCP HTTP on PORT, default 8765):
 
 ```bash
+# optional overrides
+export PORT=8765
+export MCP_PATH=/mcp
+export VAULT_PATH=/vault
+
 docker compose up --build -d
 ```
 
@@ -41,6 +46,11 @@ docker compose up --build -d
 ```bash
 docker compose logs -f mcp
 ```
+
+- Access from your network LLMs/clients:
+  - Initialize: POST http://<host>:${PORT}${MCP_PATH}
+  - Open SSE stream: GET http://<host>:${PORT}${MCP_PATH} (with Accept: text/event-stream and Mcp-Session-Id)
+  - Subsequent requests: POST with Mcp-Session-Id header
 
 Deployment note: ensure your deployment mounts the vault directory to the container path referenced by VAULT_PATH (default `/vault`). For example:
 

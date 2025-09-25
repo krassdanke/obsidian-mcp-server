@@ -6,6 +6,15 @@ services:
     image: obsidian-mcp-server:dev
     environment:
       - VAULT_PATH=${VAULT_PATH:-/vault}
+      - HOST=0.0.0.0
+      - PORT=${PORT:-8765}
+      - MCP_PATH=${MCP_PATH:-/mcp}
+      # Optional DNS rebinding protection (disabled for local dev by default)
+      - MCP_ENABLE_DNS_PROTECT=${MCP_ENABLE_DNS_PROTECT:-false}
+      - MCP_ALLOWED_HOSTS=${MCP_ALLOWED_HOSTS:-}
+      - MCP_ALLOWED_ORIGINS=${MCP_ALLOWED_ORIGINS:-}
+    ports:
+      - "${PORT:-8765}:${PORT:-8765}"
     volumes:
       # Mount the project source for live reload
       - .:/app

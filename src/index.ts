@@ -1,12 +1,21 @@
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { z } from 'zod';
 import { promises as fs } from 'fs';
 import path from 'path';
+import http from 'http';
+import { randomUUID } from 'crypto';
 
 const VERSION = '0.1.0';
 const DEFAULT_VAULT_PATH = '/vault';
 const vaultPath = process.env.VAULT_PATH || DEFAULT_VAULT_PATH;
+
+const HOST = process.env.HOST || '0.0.0.0';
+const PORT = parseInt(process.env.PORT || '8765', 10);
+const MCP_PATH = process.env.MCP_PATH || '/mcp';
+const ENABLE_DNS_PROTECT = (process.env.MCP_ENABLE_DNS_PROTECT || 'false').toLowerCase() === 'true';
+const ALLOWED_HOSTS = (process.env.MCP_ALLOWED_HOSTS || '').split(',').map(s => s.trim()).filter(Boolean);
+const ALLOWED_ORIGINS = (process.env.MCP_ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
 
 function assertWithinVault(relPath: string): string {
   const p = path.resolve(vaultPath, relPath);
@@ -75,121 +84,140 @@ async function searchNotes(query: string): Promise<{ path: string; lines: number
   return results;
 }
 
-const server = new Server({
-  name: 'obsidian-mcp-server',
-  version: VERSION,
+// We’ll instantiate McpServer per session (see below)
+
+// Shared tool registration function so each session’s server has the same tools
+function registerTools(mcp: McpServer) {
+  // list_notes
+  mcp.tool(
+    'list_notes',
+    {
+      dir: z.string().describe('Relative directory within the vault').default('.'),
+    },
+    async ({ dir }) => {
+      const files = await listMarkdownFiles(dir ?? '.');
+      return {
+        content: [{ type: 'text', text: JSON.stringify(files, null, 2) }],
+      };
+    }
+  );
+
+  // read_note
+  mcp.tool(
+    'read_note',
+    {
+      path: z.string().describe('Relative path to the note (e.g., Notes/foo.md)'),
+    },
+    async ({ path: p }) => {
+      const data = await readFileRel(p);
+      return { content: [{ type: 'text', text: data }] };
+    }
+  );
+
+  // write_note
+  mcp.tool(
+    'write_note',
+    {
+      path: z.string().describe('Relative path to the note'),
+      content: z.string().describe('Full file content'),
+      createDirs: z.boolean().describe('Create parent directories if missing').default(true),
+    },
+    async ({ path: p, content, createDirs }) => {
+      await writeFileRel(p, content, createDirs ?? true);
+      return { content: [{ type: 'text', text: 'OK' }] };
+    }
+  );
+
+  // append_note
+  mcp.tool(
+    'append_note',
+    {
+      path: z.string().describe('Relative path to the note'),
+      content: z.string().describe('Content to append'),
+    },
+    async ({ path: p, content }) => {
+      await appendFileRel(p, content);
+      return { content: [{ type: 'text', text: 'OK' }] };
+    }
+  );
+
+  // search_notes
+  mcp.tool(
+    'search_notes',
+    {
+      query: z.string().describe('Query to search for'),
+    },
+    async ({ query }) => {
+      const results = await searchNotes(query);
+      return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
+    }
+  );
+}
+
+// Session management: one McpServer + HTTP transport per session
+const sessions = new Map<string, { mcp: McpServer; transport: StreamableHTTPServerTransport }>();
+
+function createSession(): { mcp: McpServer; transport: StreamableHTTPServerTransport } {
+  const mcp = new McpServer({ name: 'obsidian-mcp-server', version: VERSION });
+  registerTools(mcp);
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: () => randomUUID(),
+    enableJsonResponse: true, // Return JSON for requests; clients can still open SSE via GET
+    enableDnsRebindingProtection: ENABLE_DNS_PROTECT,
+    allowedHosts: ALLOWED_HOSTS.length ? ALLOWED_HOSTS : undefined,
+    allowedOrigins: ALLOWED_ORIGINS.length ? ALLOWED_ORIGINS : undefined,
+    onsessioninitialized: async (sessionId: string) => {
+      sessions.set(sessionId, { mcp, transport });
+    },
+    onsessionclosed: async (sessionId: string) => {
+      sessions.delete(sessionId);
+    },
+  });
+  // Attach mcp to the transport
+  void mcp.connect(transport);
+  return { mcp, transport };
+}
+
+const server = http.createServer(async (req, res) => {
+  try {
+    // Only serve on configured path
+    const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+    if (url.pathname !== MCP_PATH) {
+      res.statusCode = 404;
+      res.end('Not Found');
+      return;
+    }
+
+    // Route based on session
+    const sessionIdHeader = req.headers['mcp-session-id'];
+    const sessionId = Array.isArray(sessionIdHeader) ? sessionIdHeader[sessionIdHeader.length - 1] : sessionIdHeader;
+
+    if (!sessionId) {
+      // No session header: this should be an initialize request; create a fresh session
+      const { transport } = createSession();
+      await transport.handleRequest(req, res);
+      return;
+    }
+
+    const existing = sessions.get(sessionId);
+    if (!existing) {
+      // Unknown session
+      res.writeHead(404).end(JSON.stringify({
+        jsonrpc: '2.0',
+        error: { code: -32001, message: 'Session not found' },
+        id: null,
+      }));
+      return;
+    }
+
+    await existing.transport.handleRequest(req, res);
+  } catch (err: any) {
+    res.writeHead(500).end(String(err?.message || err || 'Internal Server Error'));
+  }
 });
 
-// list_notes
-server.tool(
-  {
-    name: 'list_notes',
-    description: 'List markdown notes in the vault (recursively). Paths are relative to the vault root.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        dir: { type: 'string', description: 'Relative directory within the vault', default: '.' },
-      },
-      required: [],
-      additionalProperties: false,
-    },
-  },
-  async (input) => {
-    const dir = (input as any)?.dir || '.';
-    const files = await listMarkdownFiles(dir);
-    return {
-      content: [{ type: 'text', text: JSON.stringify(files, null, 2) }],
-    };
-  }
-);
-
-// read_note
-server.tool(
-  {
-    name: 'read_note',
-    description: 'Read a markdown note by relative path within the vault.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        path: { type: 'string', description: 'Relative path to the note (e.g., Notes/foo.md)' },
-      },
-      required: ['path'],
-      additionalProperties: false,
-    },
-  },
-  async (input) => {
-    const p = (input as any).path as string;
-    const data = await readFileRel(p);
-    return { content: [{ type: 'text', text: data }] };
-  }
-);
-
-// write_note
-server.tool(
-  {
-    name: 'write_note',
-    description: 'Create or overwrite a markdown note at the given relative path.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        path: { type: 'string', description: 'Relative path to the note' },
-        content: { type: 'string', description: 'Full file content' },
-        createDirs: { type: 'boolean', description: 'Create parent directories if missing', default: true },
-      },
-      required: ['path', 'content'],
-      additionalProperties: false,
-    },
-  },
-  async (input) => {
-    const { path: p, content, createDirs } = input as any;
-    await writeFileRel(p, content, createDirs ?? true);
-    return { content: [{ type: 'text', text: 'OK' }] };
-  }
-);
-
-// append_note
-server.tool(
-  {
-    name: 'append_note',
-    description: 'Append content to a markdown note at the given relative path. Creates the file if it does not exist.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        path: { type: 'string', description: 'Relative path to the note' },
-        content: { type: 'string', description: 'Content to append' },
-      },
-      required: ['path', 'content'],
-      additionalProperties: false,
-    },
-  },
-  async (input) => {
-    const { path: p, content } = input as any;
-    await appendFileRel(p, content);
-    return { content: [{ type: 'text', text: 'OK' }] };
-  }
-);
-
-// search_notes
-server.tool(
-  {
-    name: 'search_notes',
-    description: 'Search all markdown notes for a query string (case-insensitive). Returns matching file paths and line numbers.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        query: { type: 'string', description: 'Query to search for' },
-      },
-      required: ['query'],
-      additionalProperties: false,
-    },
-  },
-  async (input) => {
-    const { query } = input as any;
-    const results = await searchNotes(query);
-    return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
-  }
-);
-
-// Start the server over stdio
-const transport = new StdioServerTransport();
-await server.connect(transport);
+server.listen(PORT, HOST, () => {
+  const addr = server.address();
+  const where = typeof addr === 'string' ? addr : `${HOST}:${PORT}`;
+  console.log(`[MCP] HTTP server listening at http://${where}${MCP_PATH} (name=obsidian-mcp-server version=${VERSION} pid=${process.pid})`);
+});

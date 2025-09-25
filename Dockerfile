@@ -15,7 +15,14 @@ RUN bun install
 RUN bun run build
 
 # Runtime environment
-ENV VAULT_PATH=/vault
+ENV VAULT_PATH=/vault \
+    HOST=0.0.0.0 \
+    PORT=8765 \
+    MCP_PATH=/mcp \
+    MCP_ENABLE_DNS_PROTECT=false
+
+# Expose MCP HTTP port
+EXPOSE 8765
 
 # Define a container healthcheck that validates Node version and VAULT_PATH accessibility
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD node dist/health.js || exit 1
