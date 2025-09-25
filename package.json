@@ -14,7 +14,8 @@
     "dev": "node --enable-source-maps --import 'data:text/javascript,import { register } from \"node:module\"; import { pathToFileURL } from \"node:url\"; register(\"ts-node/esm\", pathToFileURL(\"./\"));' src/index.ts",
     "dev:watch": "node --watch --enable-source-maps --import 'data:text/javascript,import { register } from \"node:module\"; import { pathToFileURL } from \"node:url\"; register(\"ts-node/esm\", pathToFileURL(\"./\"));' src/index.ts",
     "health": "node dist/health.js",
-    "health:dev": "node --enable-source-maps --loader ts-node/esm src/health.ts"
+    "health:dev": "node --enable-source-maps --loader ts-node/esm src/health.ts",
+    "test:hurl": "hurl --test test/hurl/create_delete.hurl"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.18.1",
