@@ -1,0 +1,13 @@
+version: "3.9"
+
+services:
+  mcp:
+    build: .
+    image: obsidian-mcp-server:dev
+    environment:
+      - VAULT_PATH=${VAULT_PATH:-/vault}
+    # When deploying, mount your vault at the same path as VAULT_PATH, e.g.:
+    # volumes:
+    #   - /path/on/host/or/remote/mount:/vault:ro
+    stdin_open: true
+    tty: true

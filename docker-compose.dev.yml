@@ -1,0 +1,22 @@
+version: "3.9"
+
+services:
+  mcp:
+    build: .
+    image: obsidian-mcp-server:dev
+    environment:
+      - VAULT_PATH=${VAULT_PATH:-/vault}
+    volumes:
+      # Mount the project source for live reload
+      - .:/app
+      # Mount your local vault into the container at VAULT_PATH (read-only recommended)
+      - ${HOST_VAULT:?Set HOST_VAULT to your local vault path}:${VAULT_PATH:-/vault}:rw
+    # Ensure dependencies are present in the mounted workspace, then run watch mode
+    command: ["sh", "-lc", "bun install && bun run dev:watch"]
+    stdin_open: true
+    tty: true
+    healthcheck:
+      test: ["CMD", "node", "--enable-source-maps", "--loader", "ts-node/esm", "src/health.ts"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
