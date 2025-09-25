@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import path from 'path';
+import { parse as yamlParse, stringify as yamlStringify } from 'yaml';
 
 const DEFAULT_VAULT_PATH = '/vault';
 const vaultPath = process.env.VAULT_PATH || DEFAULT_VAULT_PATH;
@@ -115,4 +116,29 @@ export async function searchNotes(query: string): Promise<{ path: string; lines:
     if (hits.length) results.push({ path: rel, lines: hits });
   }
   return results;
+}
+
+export function composeMarkdownWithFrontmatter(frontmatter: Record<string, any> | undefined, body: string): string {
+  const hasFm = frontmatter && Object.keys(frontmatter).length > 0;
+  const fm = hasFm ? `---\n${yamlStringify(frontmatter)}---\n\n` : '';
+  return `${fm}${body ?? ''}`;
+}
+
+export function parseMarkdownWithFrontmatter(content: string): { frontmatter?: Record<string, any>; body: string } {
+  if (content.startsWith('---\n')) {
+    const end = content.indexOf('\n---', 4);
+    if (end !== -1) {
+      const fmBlock = content.slice(4, end);
+      const rest = content.slice(end + 4);
+      let body = rest.startsWith('\n') ? rest.slice(1) : rest;
+      try {
+        const fm = yamlParse(fmBlock) ?? {};
+        return { frontmatter: fm, body };
+      } catch {
+        // On YAML parse failure, return raw content as body
+        return { body: content };
+      }
+    }
+  }
+  return { body: content };
 }

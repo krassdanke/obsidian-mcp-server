@@ -12,6 +12,7 @@ import registerChangeFile from './tools/change_file.js';
 import registerAppendFile from './tools/append_file.js';
 import registerDeleteFile from './tools/delete_file.js';
 import registerSearchNotes from './tools/search_notes.js';
+import registerGetFile from './tools/get_file.js';
 
 const VERSION = '0.1.0';
 const HOST = process.env.HOST || '0.0.0.0';
@@ -34,6 +35,7 @@ function registerTools(mcp: McpServer) {
   registerAppendFile(mcp);
   registerDeleteFile(mcp);
   registerSearchNotes(mcp);
+  registerGetFile(mcp);
 }
 
 // Session management: one McpServer + HTTP transport per session

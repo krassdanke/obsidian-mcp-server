@@ -17,7 +17,8 @@
     "health:dev": "node --enable-source-maps --loader ts-node/esm src/health.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.18.1"
+    "@modelcontextprotocol/sdk": "^1.18.1",
+    "yaml": "^2.5.0"
   },
   "devDependencies": {
     "ts-node": "^10.9.2",
