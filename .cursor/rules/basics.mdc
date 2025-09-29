@@ -1,0 +1,10 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+This is a docker project. We also develop using docker. The container must be able to hot reload changes during development.
+To start the server and see if everything is working, use `bun run dev`. Do not start using docker compose directly, neither using node to execute the index.
+The .env file contains everything needed, so no need to set other env variables.
+
+I repeat, do not run node dist/index or node index. ALWAYS use bun run dev. The only thing that matters is that it runs in the docker environment.

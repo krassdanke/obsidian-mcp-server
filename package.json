@@ -11,17 +11,21 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "dev": "node --enable-source-maps --import 'data:text/javascript,import { register } from \"node:module\"; import { pathToFileURL } from \"node:url\"; register(\"ts-node/esm\", pathToFileURL(\"./\"));' src/index.ts",
+    "dev": "docker compose -f docker-compose.dev.yml up --build",
+    "dev:local": "node --enable-source-maps --import 'data:text/javascript,import { register } from \"node:module\"; import { pathToFileURL } from \"node:url\"; register(\"ts-node/esm\", pathToFileURL(\"./\"));' src/index.ts",
     "dev:watch": "node --watch --enable-source-maps --import 'data:text/javascript,import { register } from \"node:module\"; import { pathToFileURL } from \"node:url\"; register(\"ts-node/esm\", pathToFileURL(\"./\"));' src/index.ts",
     "health": "node dist/health.js",
     "health:dev": "node --enable-source-maps --loader ts-node/esm src/health.ts",
-    "test:hurl": "hurl --test test/hurl/create_delete.hurl"
+    "test:hurl": "for file in test/hurl/*.hurl; do echo \"Running $file\"; rm -rf mcp-dev/HurlTest; hurl --test \"$file\"; done; rm -rf mcp-dev/HurlTest"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.18.1",
-    "yaml": "^2.5.0"
+    "@modelcontextprotocol/sdk": "^1.18.2",
+    "better-sqlite3": "^12.4.1",
+    "yaml": "^2.5.0",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "ts-node": "^10.9.2",
     "typescript": "^5.6.2"
   },

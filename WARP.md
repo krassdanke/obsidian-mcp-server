@@ -16,9 +16,14 @@ Commands you’ll use
   ```bash
   bun run build
   ```
-- Run locally in dev (ts-node, ESM loader, source maps). Server listens on HOST:PORT (defaults HOST=0.0.0.0, PORT=8765) at MCP_PATH (default /mcp)
+- Run dev with Docker Compose (uses docker-compose.dev.yml). Server listens on HOST:PORT (defaults HOST=0.0.0.0, PORT=8765) at MCP_PATH (default /mcp)
   ```bash
   bun run dev
+  # logs: [MCP] HTTP server listening at http://0.0.0.0:8765/mcp
+  ```
+- Run locally without Docker (ts-node, ESM loader, source maps)
+  ```bash
+  bun run dev:local
   # logs: [MCP] HTTP server listening at http://0.0.0.0:8765/mcp
   ```
 - Run the built server

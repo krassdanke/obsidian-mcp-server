@@ -1,6 +1,5 @@
-# Initialize session
+# Initialize session (stateless mode)
 POST http://127.0.0.1:8765/mcp
-[Headers]
 Content-Type: application/json
 Accept: application/json, text/event-stream
 
@@ -14,19 +13,12 @@ Accept: application/json, text/event-stream
     "clientInfo": {"name": "hurl-test", "version": "0.0.1"}
   }
 }
-
-[Asserts]
-status == 200
-
-[Captures]
-session_id: header "mcp-session-id"
+HTTP/1.1 200
 
 # Create file using add_file (creates parent dirs)
 POST http://127.0.0.1:8765/mcp
-[Headers]
 Content-Type: application/json
 Accept: application/json, text/event-stream
-Mcp-Session-Id: {{session_id}}
 
 {
   "jsonrpc": "2.0",
@@ -35,24 +27,21 @@ Mcp-Session-Id: {{session_id}}
   "params": {
     "name": "add_file",
     "arguments": {
-      "path": "HurlTest/Test.md",
+      "path": "HurlTest/create_delete/Test.md",
       "content": "hello from hurl\n",
       "createDirs": true,
       "overwrite": true
     }
   }
 }
-
+HTTP/1.1 200
 [Asserts]
-status == 200
 jsonpath "$.result.content[0].text" == "OK"
 
 # Read file back with get_file
 POST http://127.0.0.1:8765/mcp
-[Headers]
 Content-Type: application/json
 Accept: application/json, text/event-stream
-Mcp-Session-Id: {{session_id}}
 
 {
   "jsonrpc": "2.0",
@@ -61,21 +50,18 @@ Mcp-Session-Id: {{session_id}}
   "params": {
     "name": "get_file",
     "arguments": {
-      "path": "HurlTest/Test.md"
+      "path": "HurlTest/create_delete/Test.md"
     }
   }
 }
-
+HTTP/1.1 200
 [Asserts]
-status == 200
 jsonpath "$.result.content[0].text" == "hello from hurl\n"
 
 # Delete the file
 POST http://127.0.0.1:8765/mcp
-[Headers]
 Content-Type: application/json
 Accept: application/json, text/event-stream
-Mcp-Session-Id: {{session_id}}
 
 {
   "jsonrpc": "2.0",
@@ -84,21 +70,18 @@ Mcp-Session-Id: {{session_id}}
   "params": {
     "name": "delete_file",
     "arguments": {
-      "path": "HurlTest/Test.md"
+      "path": "HurlTest/create_delete/Test.md"
     }
   }
 }
-
+HTTP/1.1 200
 [Asserts]
-status == 200
 jsonpath "$.result.content[0].text" == "OK"
 
-# Verify file is gone (tool should return isError=true)
+# Verify file is gone (tool should return error result)
 POST http://127.0.0.1:8765/mcp
-[Headers]
 Content-Type: application/json
 Accept: application/json, text/event-stream
-Mcp-Session-Id: {{session_id}}
 
 {
   "jsonrpc": "2.0",
@@ -107,11 +90,12 @@ Mcp-Session-Id: {{session_id}}
   "params": {
     "name": "get_file",
     "arguments": {
-      "path": "HurlTest/Test.md"
+      "path": "HurlTest/create_delete/Test.md"
     }
   }
 }
-
+HTTP/1.1 200
 [Asserts]
-status == 200
 jsonpath "$.result.isError" == true
+
+# Note: HurlTest directory will be cleaned up by the test script after execution

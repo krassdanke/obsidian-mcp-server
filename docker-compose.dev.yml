@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   mcp:
     build: .
@@ -20,6 +18,8 @@ services:
       - .:/app
       # Mount your local vault into the container at VAULT_PATH (read-only recommended)
       - ${HOST_VAULT:?Set HOST_VAULT to your local vault path}:${VAULT_PATH:-/vault}:rw
+      # Mount data directory for SQLite session persistence
+      - ./data:/data:rw
     # Ensure dependencies are present in the mounted workspace, then run watch mode
     command: ["sh", "-lc", "bun install && bun run dev:watch"]
     stdin_open: true

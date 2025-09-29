@@ -1,0 +1,150 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+# MCP Cursor Rule — Implementation Guidelines for Server Repositories
+
+**Purpose**
+This document serves as a "cursor rule" (repository policy) for all MCP server implementations. It summarizes the most important implementation guidelines, security requirements, and checkpoints that must always be considered when developing, reviewing, and deploying an MCP server.
+
+> Version: based on MCP Specification (2025-03-26 / 2025-06-18). This document is a condensed implementation checklist — not the original specification.
+
+---
+
+## 1. Scope
+
+* Applies to all HTTP-based and stdio-based MCP server implementations in this organization’s repositories.
+* For custom transports, the same principles apply (JSON-RPC format, secure auth/session management, logging/observability).
+
+---
+
+## 2. Core Rules (Summary)
+
+* **MUST** use JSON-RPC 2.0; all messages must be UTF-8 encoded.
+* **MUST** for `stdio` transport: messages are newline-delimited, must not contain embedded newlines; server must not write anything to `stdout` that is not a valid MCP message.
+* **MUST** for streamable HTTP: support a single MCP endpoint URL that accepts both `POST` and `GET`.
+* **MUST** for HTTP transport: process `Authorization: Bearer <access-token>` on every request (if auth is enabled); tokens must not be sent in URL query strings.
+* **SHOULD** support SSE (Server-Sent Events) when streaming is required; SSE events may include an `id` field acting as a per-stream cursor.
+* **MUST** validate `Origin` header (to prevent DNS rebinding) on HTTP transport.
+
+---
+
+## 3. Transport-specific Rules
+
+### 3.1 stdio
+
+* Server is started as a subprocess of the client.
+* Input: `stdin` → JSON-RPC messages, newline-delimited.
+* Output: `stdout` → valid MCP messages only.
+* `stderr` may be used for logs; clients may ignore or forward them.
+* Auth data for stdio **MUST NOT** use OAuth — retrieved from environment/config.
+
+### 3.2 Streamable HTTP (recommended for multi-client servers)
+
+* **Single MCP endpoint** (e.g. `https://example.com/mcp`) — supports `POST` (send JSON-RPC requests) and `GET` (open SSE connection).
+* `POST` requests:
+
+  * `Accept` header MUST support `application/json` and `text/event-stream`.
+  * Body may be: single JSON-RPC request/notification/response or an array (batch).
+  * If body only contains responses/notifications and is accepted → return `202 Accepted` with no body.
+  * If body contains requests → server MUST return either `Content-Type: text/event-stream` (SSE stream) *or* `Content-Type: application/json` (single JSON response).
+* SSE streams:
+
+  * Server may send additional requests/notifications via SSE before responses (context-aware).
+  * `id` field in SSE events **MAY** be used; if used, it MUST be unique within the session/stream.
+  * Client may send `Last-Event-ID` to support resume/redelivery.
+* Multiple connections: server MUST send each message on *one* connected stream only (no broadcast of identical messages).
+
+---
+
+## 4. Session Management & Resumability
+
+* Server *may* return an `Mcp-Session-Id` in the `InitializeResult`.
+
+  * `Mcp-Session-Id` MUST be cryptographically secure and globally unique (e.g. UUID v4 or cryptographically random token).
+  * Header values must use visible ASCII characters (0x21–0x7E).
+* Clients MUST include the `Mcp-Session-Id` header in subsequent requests if returned during init.
+* Server may terminate sessions at any time — after which requests with that session ID should return `404 Not Found`.
+* Clients that no longer need a session SHOULD send `DELETE` to the MCP endpoint with `Mcp-Session-Id` (server may reject if unsupported).
+
+---
+
+## 5. Authorization (HTTP-based Implementations)
+
+* Authorization is **OPTIONAL** for MCP overall, but **if** supported: HTTP-based implementations **SHOULD** follow the auth specification.
+* MCP servers **SHOULD** implement OAuth 2.1; PKCE is **REQUIRED** for all clients.
+* **Recommended grant types**: Authorization Code (for user-delegated flows) and Client Credentials (for machine-to-machine).
+* **Dynamic Client Registration** (RFC7591) **SHOULD** be supported for automatic client registration.
+* **Server Metadata Discovery** (RFC8414) **SHOULD** be supported; fallback URLs must be documented and implemented.
+* **Access Token Handling**:
+
+  * `Authorization: Bearer <access-token>` MUST be used for every HTTP request (even within the same session).
+  * Tokens **MUST NOT** appear in query strings.
+  * Resource server MUST validate tokens following OAuth 2.1 best practices; invalid/expired tokens → `401 Unauthorized`.
+  * Insufficient rights/scopes → `403 Forbidden`.
+* **Token Security**: secure storage (client & server), rotation recommended, short lifetimes per security requirements.
+* **Redirect URI**: validation mandatory; only `localhost` or HTTPS URIs allowed.
+
+---
+
+## 6. Security Best Practices (Explicit)
+
+* All auth/metadata/token endpoints **MUST** be accessible via HTTPS.
+* Validate `Origin` header (especially for local server connections) to prevent DNS rebinding attacks.
+* In local operation, server **SHOULD** bind only to `127.0.0.1` (not `0.0.0.0`).
+* Tools (functions) are potentially untrusted — hosts must implement explicit user-consent flows before executing tools.
+* Apply least-privilege principle for token scopes and resource access.
+
+---
+
+## 7. Error Handling & HTTP Codes
+
+* `401 Unauthorized` → Authorization required or token invalid/expired.
+* `403 Forbidden` → Token valid but scope/permission missing.
+* `400 Bad Request` → Invalid request (e.g. malformed JSON-RPC body).
+* `404 Not Found` → Resource or session ID not found (e.g. session terminated).
+
+---
+
+## 8. Repository Checklist (Practical for PR/CI)
+
+* [ ] `MCP-Protocol-Version` header implemented/tested in Metadata Discovery.
+* [ ] Origin header validation: unit & integration tests.
+* [ ] SSE Resume: event ID generation testable & deterministic within a session.
+* [ ] Session ID generation: entropy tests (no UUID collision tool in CI).
+* [ ] OAuth: PKCE flow tests & token rotation simulations.
+* [ ] Example client snippets in `examples/` for stdio & HTTP.
+* [ ] Security review checklist (TLS config, HSTS, CORS, CSP when relevant).
+* [ ] README: clear instructions on configuring auth (discovery endpoints or fallback paths).
+
+---
+
+## 9. Practical Snippets (Copy-ready)
+
+**HTTP Authorization header**
+
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**Session header for follow-up requests**
+
+```
+Mcp-Session-Id: <secure-session-id>
+```
+
+**SSE Resume (Client)**
+
+```
+GET /mcp
+Accept: text/event-stream
+Last-Event-ID: <last-received-id>
+```
+
+---
+
+## 10. Notes / Rationale
+
+* This document is intended as a checklist: concise, practical, and directly stored in the repo. It is NOT a replacement for the full MCP specification; authoritative reference remains the official spec.
+* Keep this document in sync with official specification releases (e.g. `2025-03-26`, `2025-06-18`).

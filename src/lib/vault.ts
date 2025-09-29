@@ -14,6 +14,47 @@ export function assertWithinVault(relPath: string): string {
   return p;
 }
 
+async function ensureVaultExists(): Promise<void> {
+  try {
+    const stat = await fs.lstat(vaultPath);
+    if (!stat.isDirectory()) {
+      throw new Error(`Vault path is not a directory: ${vaultPath}`);
+    }
+  } catch (e: any) {
+    if (e?.code === 'ENOENT') {
+      throw new Error(`Vault path does not exist: ${vaultPath}`);
+    }
+    throw e;
+  }
+}
+
+export function getVaultPath(): string {
+  return path.resolve(vaultPath);
+}
+
+export async function getVaultAccessibility(): Promise<{ exists: boolean; isDirectory: boolean; writable: boolean }> {
+  try {
+    const stat = await fs.lstat(vaultPath);
+    const isDirectory = stat.isDirectory();
+    let writable = false;
+    if (isDirectory) {
+      try {
+        await fs.access(vaultPath, (fs as any).constants?.W_OK ?? 2);
+        writable = true;
+      } catch {
+        writable = false;
+      }
+    }
+    return { exists: true, isDirectory, writable };
+  } catch (e: any) {
+    if (e?.code === 'ENOENT') {
+      return { exists: false, isDirectory: false, writable: false };
+    }
+    // On unknown error, report non-writable but existing state
+    return { exists: true, isDirectory: false, writable: false };
+  }
+}
+
 export async function listMarkdownFiles(dir: string): Promise<string[]> {
   const abs = assertWithinVault(dir);
   const out: string[] = [];
@@ -68,17 +109,28 @@ export async function readFileRel(relPath: string): Promise<string> {
 }
 
 export async function writeFileRel(relPath: string, content: string, createDirs = true): Promise<void> {
+  await ensureVaultExists();
   const abs = assertWithinVault(relPath);
   if (createDirs) {
-    await fs.mkdir(path.dirname(abs), { recursive: true });
+    const parent = path.dirname(abs);
+    // Only create directories inside the vault; never create the vault root itself
+    if (parent !== path.resolve(vaultPath)) {
+      await fs.mkdir(parent, { recursive: true });
+    }
   }
-  await fs.writeFile(abs, content, 'utf8');
+  const expandedContent = expandDateVariables(content);
+  await fs.writeFile(abs, expandedContent, 'utf8');
 }
 
 export async function appendFileRel(relPath: string, content: string): Promise<void> {
+  await ensureVaultExists();
   const abs = assertWithinVault(relPath);
-  await fs.mkdir(path.dirname(abs), { recursive: true });
-  await fs.appendFile(abs, content, 'utf8');
+  const parent = path.dirname(abs);
+  if (parent !== path.resolve(vaultPath)) {
+    await fs.mkdir(parent, { recursive: true });
+  }
+  const expandedContent = expandDateVariables(content);
+  await fs.appendFile(abs, expandedContent, 'utf8');
 }
 
 export async function pathExistsRel(relPath: string): Promise<boolean> {
@@ -118,10 +170,31 @@ export async function searchNotes(query: string): Promise<{ path: string; lines:
   return results;
 }
 
+export function expandDateVariables(content: string): string {
+  const now = new Date();
+  
+  // Replace {{date}} with current date
+  content = content.replace(/\{\{date\}\}/g, now.toLocaleDateString());
+  
+  // Replace {{date:YYYY-MM-DD}} with formatted date
+  content = content.replace(/\{\{date:YYYY-MM-DD\}\}/g, now.toISOString().split('T')[0]);
+  
+  // Replace {{date:YYYY-MM-DD HH:mm}} with formatted date and time
+  content = content.replace(/\{\{date:YYYY-MM-DD HH:mm\}\}/g, 
+    now.toISOString().slice(0, 16).replace('T', ' '));
+  
+  // Replace {{date:YYYY-MM-DD HH:mm:ss}} with formatted date and time with seconds
+  content = content.replace(/\{\{date:YYYY-MM-DD HH:mm:ss\}\}/g, 
+    now.toISOString().slice(0, 19).replace('T', ' '));
+  
+  return content;
+}
+
 export function composeMarkdownWithFrontmatter(frontmatter: Record<string, any> | undefined, body: string): string {
   const hasFm = frontmatter && Object.keys(frontmatter).length > 0;
   const fm = hasFm ? `---\n${yamlStringify(frontmatter)}---\n\n` : '';
-  return `${fm}${body ?? ''}`;
+  const content = `${fm}${body ?? ''}`;
+  return expandDateVariables(content);
 }
 
 export function parseMarkdownWithFrontmatter(content: string): { frontmatter?: Record<string, any>; body: string } {

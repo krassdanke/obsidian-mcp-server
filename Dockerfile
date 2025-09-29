@@ -2,8 +2,8 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# Install Bun (package manager) alongside Node 22
-RUN apk add --no-cache curl bash \
+# Install Bun (package manager) alongside Node 22 and build tools for native dependencies
+RUN apk add --no-cache curl bash python3 make g++ \
     && curl -fsSL https://bun.sh/install | bash \
     && ln -s /root/.bun/bin/bun /usr/local/bin/bun
 
@@ -13,6 +13,9 @@ COPY tsconfig.json ./
 COPY src ./src
 RUN bun install
 RUN bun run build
+
+# Create data directory for SQLite database
+RUN mkdir -p /data
 
 # Runtime environment
 ENV VAULT_PATH=/vault \

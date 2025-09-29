@@ -18,5 +18,6 @@ services:
     # When deploying, mount your vault at the same path as VAULT_PATH, e.g.:
     # volumes:
     #   - /path/on/host/or/remote/mount:/vault:ro
+    #   - ./data:/data:rw  # For SQLite session persistence
     stdin_open: true
     tty: true
