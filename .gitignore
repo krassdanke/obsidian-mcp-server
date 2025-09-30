@@ -3,4 +3,4 @@ dist/
 .env
 .DS_Store
 mcp-dev/
-data/*
+data/
