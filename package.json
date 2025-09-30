@@ -14,8 +14,15 @@
     "dev": "docker compose -f docker-compose.dev.yml up --build",
     "dev:local": "node --enable-source-maps --import 'data:text/javascript,import { register } from \"node:module\"; import { pathToFileURL } from \"node:url\"; register(\"ts-node/esm\", pathToFileURL(\"./\"));' src/index.ts",
     "dev:watch": "node --watch --enable-source-maps --import 'data:text/javascript,import { register } from \"node:module\"; import { pathToFileURL } from \"node:url\"; register(\"ts-node/esm\", pathToFileURL(\"./\"));' src/index.ts",
-    "health": "node dist/health.js",
-    "health:dev": "node --enable-source-maps --loader ts-node/esm src/health.ts",
+    "dev:stop": "docker compose -f docker-compose.dev.yml down",
+    "dev:logs": "docker compose -f docker-compose.dev.yml logs -f",
+    "prod": "docker compose up --build",
+    "prod:stop": "docker compose down",
+    "prod:logs": "docker compose logs -f",
+    "docker:build": "docker build --target production -t obsidian-mcp-server:latest .",
+    "docker:build:dev": "docker build --target dev -t obsidian-mcp-server:dev .",
+    "health": "docker compose exec mcp node dist/health.js",
+    "health:dev": "docker compose -f docker-compose.dev.yml exec mcp node --enable-source-maps --loader ts-node/esm src/health.ts",
     "test:hurl": "for file in test/hurl/*.hurl; do echo \"Running $file\"; rm -rf mcp-dev/HurlTest; hurl --test \"$file\"; done; rm -rf mcp-dev/HurlTest"
   },
   "dependencies": {

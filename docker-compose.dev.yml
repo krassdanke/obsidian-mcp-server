@@ -1,6 +1,8 @@
 services:
   mcp:
-    build: .
+    build:
+      context: .
+      target: dev
     image: obsidian-mcp-server:dev
     environment:
       - VAULT_PATH=${VAULT_PATH:-/vault}

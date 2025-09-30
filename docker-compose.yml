@@ -1,9 +1,9 @@
-version: "3.9"
-
 services:
   mcp:
-    build: .
-    image: obsidian-mcp-server:dev
+    build:
+      context: .
+      target: production
+    image: obsidian-mcp-server:latest
     environment:
       - VAULT_PATH=${VAULT_PATH:-/vault}
       - HOST=0.0.0.0
@@ -31,5 +31,10 @@ services:
     # volumes:
     #   - /path/on/host/or/remote/mount:/vault:ro
     #   - ./data:/data:rw  # For SQLite session persistence
+    volumes:
+      # Mount your local vault into the container at VAULT_PATH (read-only recommended)
+      - ${HOST_VAULT:?Set HOST_VAULT to your local vault path}:${VAULT_PATH:-/vault}:rw
+      # Mount data directory for SQLite session persistence
+      - ./data:/data:rw
     stdin_open: true
     tty: true
