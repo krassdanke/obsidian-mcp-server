@@ -27,6 +27,8 @@ import registerCreateCanvas from './tools/create_canvas.js';
 import registerManageTemplates from './tools/manage_templates.js';
 import { getVaultPath, getVaultAccessibility } from './lib/vault.js';
 import { SQLiteSessionStore } from './lib/session-store.js';
+import { loadAuthConfig, createAuthMiddleware } from './lib/auth.js';
+import { handleOAuthCallback, handleOAuthAuth, handleOAuthMetadata, handleUserInfo, handleJWKS } from './lib/oauth-handlers.js';
 
 const VERSION = '0.1.0';
 const HOST = process.env.HOST || '0.0.0.0';
@@ -38,6 +40,9 @@ const ALLOWED_ORIGINS = (process.env.MCP_ALLOWED_ORIGINS || '').split(',').map(s
 
 // SQLite database path - use /data directory for persistence across container restarts
 const DB_PATH = process.env.DB_PATH || '/data/sessions.db';
+
+// Load authentication configuration
+const authConfig = loadAuthConfig();
 
 // Single MCP server instance
 const mcp = new McpServer({ name: 'obsidian-mcp-server', version: VERSION });
@@ -88,6 +93,9 @@ const transport = new StreamableHTTPServerTransport({
 await mcp.connect(transport);
 console.log(`[MCP] MCP server connected successfully`);
 
+// Create authentication middleware
+const authMiddleware = createAuthMiddleware(authConfig);
+
 const server = http.createServer(async (req, res) => {
   const startTime = Date.now();
   const requestId = Math.random().toString(36).substring(2, 15);
@@ -115,6 +123,26 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
     
+    // Handle OAuth endpoints
+    if (authConfig.enabled) {
+      if (url.pathname === '/auth') {
+        handleOAuthAuth(req, res, authConfig);
+        return;
+      } else if (url.pathname === '/auth/callback') {
+        await handleOAuthCallback(req, res, authConfig);
+        return;
+      } else if (url.pathname === '/.well-known/oauth-authorization-server') {
+        handleOAuthMetadata(req, res, authConfig);
+        return;
+      } else if (url.pathname === '/userinfo') {
+        await handleUserInfo(req, res, authConfig);
+        return;
+      } else if (url.pathname === '/.well-known/jwks.json') {
+        handleJWKS(req, res, authConfig);
+        return;
+      }
+    }
+
     // Only serve MCP on configured path
     if (url.pathname !== MCP_PATH) {
       res.statusCode = 404;
@@ -122,8 +150,15 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // In stateless mode, no session validation needed
-    console.log(`[${requestId}] Stateless request - no session validation`);
+    // Apply authentication middleware
+    if (authConfig.enabled) {
+      await new Promise<void>((resolve, reject) => {
+        console.log(`[${requestId}] Authentication enabled - validating token`);
+        authMiddleware(req, res, () => {
+          resolve();
+        });
+      });
+    }
 
     // Handle request with single transport
     await transport.handleRequest(req, res);
@@ -141,6 +176,7 @@ server.listen(PORT, HOST, () => {
   console.log(`[MCP] HTTP server listening at http://${where}${MCP_PATH} (name=obsidian-mcp-server version=${VERSION} pid=${process.pid})`);
   console.log(`[MCP] Single server mode: All clients share one MCP server instance`);
   console.log(`[MCP] Session store: SQLite database at ${DB_PATH}`);
+  console.log(`[MCP] Authentication: ${authConfig.enabled ? `Enabled (${authConfig.provider})` : 'Disabled'}`);
   
   void (async () => {
     const acc = await getVaultAccessibility();
