@@ -14,8 +14,99 @@ env:
   IMAGE_NAME: obsidian-mcp-server
 
 jobs:
+  # First job: Build and test production container locally
+  test-production:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch all history for tags
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build production image locally
+      run: |
+        docker build --target production -t obsidian-mcp-server:test .
+
+    - name: Install Hurl
+      run: |
+        curl -sL https://install.hurl.dev | bash
+        echo "$HOME/.hurl/bin" >> $GITHUB_PATH
+
+    - name: Create test vault directory
+      run: |
+        mkdir -p ./mcp-dev-test
+
+    - name: Start production container for testing
+      run: |
+        # Start container in background
+        docker run --rm -d --name test-prod-container \
+          -p 8765:8765 \
+          -v $(pwd)/mcp-dev-test:/vault:rw \
+          -v $(pwd)/data:/data:rw \
+          -e VAULT_PATH=/vault \
+          -e HOST=0.0.0.0 \
+          -e PORT=8765 \
+          -e MCP_PATH=/mcp \
+          -e MCP_ENABLE_DNS_PROTECT=false \
+          obsidian-mcp-server:test
+
+    - name: Wait for container to be ready
+      run: |
+        echo "Waiting for container to start..."
+        for i in {1..30}; do
+          if docker ps | grep -q test-prod-container; then
+            echo "Container is running"
+            break
+          fi
+          if [ $i -eq 30 ]; then
+            echo "Container failed to start"
+            docker logs test-prod-container
+            exit 1
+          fi
+          sleep 1
+        done
+        
+        # Wait for server to initialize
+        sleep 5
+        
+        # Test health check
+        echo "Running health check..."
+        docker exec test-prod-container node dist/health.js || {
+          echo "Health check failed"
+          docker logs test-prod-container
+          docker stop test-prod-container
+          exit 1
+        }
+
+    - name: Run comprehensive tests
+      run: |
+        echo "Running Hurl tests against production container..."
+        for file in test/hurl/*.hurl; do
+          echo "Running $file"
+          hurl --test "$file" || {
+            echo "Test $file failed"
+            docker logs test-prod-container
+            docker stop test-prod-container
+            exit 1
+          }
+        done
+
+    - name: Cleanup test container
+      if: always()
+      run: |
+        docker stop test-prod-container || true
+
+  # Second job: Build and push to Docker Hub (only if tests pass)
   build-and-push:
     runs-on: ubuntu-latest
+    needs: test-production
+    if: github.event_name != 'pull_request'
     permissions:
       contents: read
       packages: write
@@ -30,7 +121,6 @@ jobs:
       uses: docker/setup-buildx-action@v3
 
     - name: Log in to Docker Hub
-      if: github.event_name != 'pull_request'
       uses: docker/login-action@v3
       with:
         registry: ${{ env.REGISTRY }}
@@ -49,59 +139,25 @@ jobs:
           type=semver,pattern={{major}}.{{minor}}
           type=semver,pattern={{major}}
           type=raw,value=latest,enable={{is_default_branch}}
-          type=sha,prefix={{branch}}-
           type=sha,prefix=commit-
 
     - name: Build and push Docker image
+      id: build
       uses: docker/build-push-action@v5
       with:
         context: .
         target: production
         platforms: linux/amd64,linux/arm64
-        push: ${{ github.event_name != 'pull_request' }}
+        push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
     - name: Output image details
-      if: github.event_name != 'pull_request'
       run: |
         echo "Image pushed with tags:"
         echo "${{ steps.meta.outputs.tags }}"
         echo ""
         echo "Image digest: ${{ steps.build.outputs.digest }}"
 
-  # Optional: Add a job to test the built image
-  test-image:
-    runs-on: ubuntu-latest
-    needs: build-and-push
-    if: github.event_name != 'pull_request'
-    
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-    - name: Test Docker image
-      run: |
-        # Pull the latest image
-        docker pull ${{ env.REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest
-        
-        # Run a basic health check
-        docker run --rm -d --name test-container \
-          -p 8766:8765 \
-          -e VAULT_PATH=/tmp/test-vault \
-          -e HOST=0.0.0.0 \
-          -e PORT=8765 \
-          -e MCP_PATH=/mcp \
-          -e MCP_ENABLE_DNS_PROTECT=false \
-          ${{ env.REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest
-        
-        # Wait for container to start
-        sleep 10
-        
-        # Test health endpoint
-        curl -f http://localhost:8766/health || exit 1
-        
-        # Clean up
-        docker stop test-container
