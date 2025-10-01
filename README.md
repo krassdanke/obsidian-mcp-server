@@ -1,6 +1,80 @@
 # Obsidian MCP Server
 
-An MCP server (Model Context Protocol) that exposes tools for interacting with an Obsidian vault located at a path specified by VAULT_PATH. The server is designed to run in Docker; you are expected to mount your vault into the container at the same path as VAULT_PATH.
+An MCP server (Model Context Protocol) that exposes tools for interacting with an Obsidian vault. This server provides comprehensive Obsidian functionality to LLMs and IDEs through the Model Context Protocol.
+
+## Quick Start (Production)
+
+### Using Docker Hub
+
+The easiest way to get started is using the pre-built Docker image from Docker Hub:
+
+```bash
+# Pull the latest image
+docker pull dthdyver/obsidian-mcp-server:latest
+
+# Run with your Obsidian vault
+docker run -d \
+  --name obsidian-mcp \
+  -p 8765:8765 \
+  -v /path/to/your/obsidian/vault:/vault:ro \
+  dthdyver/obsidian-mcp-server:latest
+```
+
+### Production Deployment
+
+For production deployments, use Docker Compose:
+
+```yaml
+# docker-compose.yml
+services:
+  obsidian-mcp:
+    image: dthdyver/obsidian-mcp-server:latest
+    ports:
+      - "8765:8765"
+    environment:
+      - VAULT_PATH=/vault
+      - PORT=8765
+      - MCP_PATH=/mcp
+    volumes:
+      - /path/to/your/obsidian/vault:/vault:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8765/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+```
+
+Deploy with:
+```bash
+docker-compose up -d
+```
+
+### Configure Your MCP Client
+
+Once running, configure your MCP client to connect to the server:
+
+**Cursor IDE:**
+```json
+{
+  "mcpServers": {
+    "obsidian-network": {
+      "url": "http://localhost:8765/mcp"
+    }
+  }
+}
+```
+
+**Claude Desktop:**
+```json
+{
+  "mcpServers": {
+    "obsidian-network": {
+      "url": "http://localhost:8765/mcp"
+    }
+  }
+}
+```
 
 ## Features
 
@@ -27,6 +101,34 @@ An MCP server (Model Context Protocol) that exposes tools for interacting with a
 - **Session Persistence**: Sessions survive container restarts and reboots
 - **Automatic Cleanup**: Old sessions (24+ hours) are automatically cleaned up
 - **Graceful Shutdown**: Proper session cleanup on server shutdown
+
+## Available Tools
+
+The server provides 23 tools covering Obsidian's core functionality:
+
+**File Operations**: `add_file`, `change_file`, `append_file`, `delete_file`, `delete_directory`, `get_file`, `list_files`, `list_notes`, `read_note`, `write_note`, `rename_file`, `move_file`
+
+**Obsidian Features**: `create_wikilink`, `find_backlinks`, `manage_tags`, `search_advanced`, `manage_frontmatter`, `create_callout`, `create_embed`, `execute_dataview`, `create_canvas`, `manage_templates`, `search_notes`
+
+## Example Usage
+
+Once configured, you can ask your LLM to:
+- "Create a new note about project planning with frontmatter"
+- "Find all notes that link to 'meeting notes'"
+- "Generate a callout warning about the deadline"
+- "Create a canvas with connected nodes"
+- "Search for all tasks with high priority"
+- "Apply the meeting template with today's date"
+
+## Security Notes
+
+- The server runs with read-write access to your vault
+- Ensure proper firewall rules if exposing to network
+- Consider read-only mounts for production use
+- The server validates paths to prevent directory traversal
+- **OAuth 2.1**: Enable authentication for network deployments
+- **HTTPS**: Use HTTPS in production for OAuth endpoints
+- **Token Security**: Bearer tokens are validated on every request
 
 ## Development
 
@@ -182,94 +284,6 @@ curl -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
   - or run directly without building: bun run health:dev
 - In Docker: the image defines a HEALTHCHECK. After `docker compose up`, use `docker compose ps` to see health status. Logs include the JSON result from the health script.
 
-## Use Obsidian MCP Server
-
-This MCP server provides comprehensive Obsidian functionality to LLMs and IDEs. Here's how to set it up with different environments:
-
-### Cursor IDE Setup
-
-1. **Install the MCP server**:
-   - Either locally or on the network
-   - Pull and run image from Docker Hub
-
-2. **Configure Cursor**:
-   - Open Cursor settings (Cmd/Ctrl + ,)
-   - Go to "Features" → "Model Context Protocol"
-   - Add a new MCP server configuration:
-
-   ```json
-    {
-      "mcpServers": {
-        "obsidian-network": {
-          "url": "http://localhost:8765/mcp" // or you network ip
-        }
-      }
-    }
-   ```
-
-### Claude Desktop
-
-1. **Claude Desktop Configuration**:
-```json
-{
-  "mcpServers": {
-    "obsidian-network": {
-      "url": "http://localhost:8765/mcp" // or you network ip
-    }
-  }
-}
-```
-
-#### 5. Production Deployment Example
-
-```yaml
-# docker-compose.yml
-services:
-  obisidian-mcp:
-    build: .
-    ports:
-      - "8765:8765"
-    environment:
-      - VAULT_PATH=/vault
-      - PORT=8765
-      - MCP_PATH=/mcp
-    volumes:
-      - /path/to/your/obsidian/vault:/vault:ro
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8765/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-```
-
-### Available Tools
-
-The server provides 23 tools covering Obsidian's core functionality:
-
-**File Operations**: `add_file`, `change_file`, `append_file`, `delete_file`, `delete_directory`, `get_file`, `list_files`, `list_notes`, `read_note`, `write_note`, `rename_file`, `move_file`
-
-**Obsidian Features**: `create_wikilink`, `find_backlinks`, `manage_tags`, `search_advanced`, `manage_frontmatter`, `create_callout`, `create_embed`, `execute_dataview`, `create_canvas`, `manage_templates`, `search_notes`
-
-### Example Usage
-
-Once configured, you can ask your LLM to:
-- "Create a new note about project planning with frontmatter"
-- "Find all notes that link to 'meeting notes'"
-- "Generate a callout warning about the deadline"
-- "Create a canvas with connected nodes"
-- "Search for all tasks with high priority"
-- "Apply the meeting template with today's date"
-
-### Security Notes
-
-- The server runs with read-write access to your vault
-- Ensure proper firewall rules if exposing to network
-- Consider read-only mounts for production use
-- The server validates paths to prevent directory traversal
-- **OAuth 2.1**: Enable authentication for network deployments
-- **HTTPS**: Use HTTPS in production for OAuth endpoints
-- **Token Security**: Bearer tokens are validated on every request
 
 ## Notes
 - This server provides comprehensive Obsidian functionality through the Model Context Protocol
