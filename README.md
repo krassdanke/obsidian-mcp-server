@@ -4,12 +4,6 @@ An MCP server (Model Context Protocol) that exposes tools for interacting with a
 
 ## Features
 
-### Session Management
-- **SQLite Session Store**: Persistent session storage using SQLite database
-- **Session Persistence**: Sessions survive container restarts and reboots
-- **Automatic Cleanup**: Old sessions (24+ hours) are automatically cleaned up
-- **Graceful Shutdown**: Proper session cleanup on server shutdown
-
 ### File Operations
 - Create, read, update, delete files and directories
 - List files and markdown notes
@@ -28,44 +22,30 @@ An MCP server (Model Context Protocol) that exposes tools for interacting with a
 - **Templates**: Create, list, get, and apply templates with variable substitution
 - **Advanced Search**: Search with operators (file:, tag:, path:, content:)
 
-## Prerequisites
+### Session Management
+- **SQLite Session Store**: Persistent session storage using SQLite database
+- **Session Persistence**: Sessions survive container restarts and reboots
+- **Automatic Cleanup**: Old sessions (24+ hours) are automatically cleaned up
+- **Graceful Shutdown**: Proper session cleanup on server shutdown
+
+## Development
+
+### Prerequisites
 - Node.js 22+
 - Bun (package manager)
 - Docker and Docker Compose (for containerized runs)
 - SQLite3 (for session persistence)
 
-## Local development
+### Getting up and running
+- Create and `.env` file (copy `.env.example`)
+- Ensure your deployment mounts the vault directory to the container path referenced by VAULT_PATH (default `/vault`)
 - Install dependencies
   - `bun install`
-- Run in dev (TypeScript via ts-node, source maps)
+- Run in dev (TypeScript via ts-node, source maps) using Docker
   - `bun run dev`
 - Type-check and build to `dist/`
   - `bun run build`
-
-Set VAULT_PATH to any local directory containing your Obsidian vault, for example:
-
-```bash
-export VAULT_PATH="$HOME/ObsidianVault"
-bun run dev
-```
-
-## Container build and run
-- Build the image and start the container (exposes MCP HTTP on PORT, default 8765):
-
-```bash
-# optional overrides
-export PORT=8765
-export MCP_PATH=/mcp
-export VAULT_PATH=/vault
-
-docker compose up --build -d
-```
-
-- Follow logs (optional):
-
-```bash
-docker compose logs -f mcp
-```
+- Follow docker logs (optional)
 
 ### Session Persistence
 The server uses SQLite to persist session data in the `/data` directory. This ensures that:
@@ -80,30 +60,11 @@ export DB_PATH=/custom/path/sessions.db
 
 - Access from your network LLMs/clients:
   - Initialize: POST http://<host>:${PORT}${MCP_PATH}
-  - Open SSE stream: GET http://<host>:${PORT}${MCP_PATH} (with Accept: text/event-stream and Mcp-Session-Id)
-  - Subsequent requests: POST with Mcp-Session-Id header
+  - Open SSE stream: GET http://<host>:${PORT}${MCP_PATH} (with Accept: text/event-stream)
 
-Deployment note: ensure your deployment mounts the vault directory to the container path referenced by VAULT_PATH (default `/vault`). For example:
+### Dockerized development (live reload)
 
-```yaml
-services:
-  mcp:
-    environment:
-      - VAULT_PATH=/vault
-    volumes:
-      - /path/on/host/or/remote/mount:/vault:ro
-```
-
-## Dockerized development (live reload)
-
-Use the dev Compose overlay to run watch mode inside Docker, mounting your source and your local vault:
-
-```bash
-export HOST_VAULT="/path/to/your/local/ObsidianVault"   # set to your local vault path
-export VAULT_PATH="/vault"                               # path inside the container
-
-docker compose -f docker-compose.dev.yml up --build
-```
+Use the dev Compose overlay to run watch mode inside Docker, mounting your source and your local vault.
 
 - The container will run `bun install` on start and then `bun run dev:watch`.
 - Source changes under src/ will trigger automatic restarts.
@@ -228,11 +189,8 @@ This MCP server provides comprehensive Obsidian functionality to LLMs and IDEs. 
 ### Cursor IDE Setup
 
 1. **Install the MCP server**:
-   ```bash
-   git clone https://github.com/your-username/obsidian-mcp-server.git
-   cd obsidian-mcp-server
-   bun install
-   ```
+   - Either locally or on the network
+   - Pull and run image from Docker Hub
 
 2. **Configure Cursor**:
    - Open Cursor settings (Cmd/Ctrl + ,)
@@ -240,126 +198,34 @@ This MCP server provides comprehensive Obsidian functionality to LLMs and IDEs. 
    - Add a new MCP server configuration:
 
    ```json
-   {
-     "mcpServers": {
-       "obsidian": {
-         "command": "docker",
-         "args": [
-           "compose", "-f", "docker-compose.dev.yml", "up", "--build"
-         ],
-         "env": {
-           "HOST_VAULT": "/path/to/your/obsidian/vault",
-           "VAULT_PATH": "/vault",
-           "PORT": "8765"
-         }
-       }
-     }
-   }
+    {
+      "mcpServers": {
+        "obsidian-network": {
+          "url": "http://localhost:8765/mcp" // or you network ip
+        }
+      }
+    }
    ```
 
-3. **Alternative: Direct Node.js setup**:
-   ```json
-   {
-     "mcpServers": {
-       "obsidian": {
-         "command": "node",
-         "args": ["dist/index.js"],
-         "env": {
-           "VAULT_PATH": "/path/to/your/obsidian/vault",
-           "PORT": "8765"
-         }
-       }
-     }
-   }
-   ```
+### Claude Desktop
 
-### Claude Desktop Setup
-
-1. **Add to Claude Desktop configuration** (`claude_desktop_config.json`):
-   ```json
-   {
-     "mcpServers": {
-       "obsidian": {
-         "command": "docker",
-         "args": [
-           "compose", "-f", "docker-compose.dev.yml", "up", "--build"
-         ],
-         "env": {
-           "HOST_VAULT": "/path/to/your/obsidian/vault",
-           "VAULT_PATH": "/vault",
-           "PORT": "8765"
-         }
-       }
-     }
-   }
-   ```
-
-### Network MCP Server Setup
-
-For hosting the MCP server on a network VM to serve multiple clients:
-
-#### 1. Deploy on Network VM
-
-```bash
-# On your network VM
-git clone https://github.com/your-username/obsidian-mcp-server.git
-cd obsidian-mcp-server
-
-# Set up your vault path (mount your Obsidian vault to the VM)
-export VAULT_PATH="/vault"
-export PORT="8765"
-export MCP_PATH="/mcp"
-
-# Start the server
-docker compose up --build -d
-```
-
-#### 2. Configure Clients to Connect
-
-**Cursor IDE Configuration**:
+1. **Claude Desktop Configuration**:
 ```json
 {
   "mcpServers": {
     "obsidian-network": {
-      "url": "http://your-vm-ip:8765/mcp"
+      "url": "http://localhost:8765/mcp" // or you network ip
     }
   }
 }
 ```
-
-**Claude Desktop Configuration**:
-```json
-{
-  "mcpServers": {
-    "obsidian-network": {
-      "url": "http://your-vm-ip:8765/mcp"
-    }
-  }
-}
-```
-
-#### 3. Network Access Configuration
-
-The server exposes these endpoints for network access:
-- **Initialize**: `POST http://your-vm-ip:8765/mcp`
-- **Tool calls**: `POST http://your-vm-ip:8765/mcp` with `Mcp-Session-Id` header
-- **SSE stream**: `GET http://your-vm-ip:8765/mcp` with `Accept: text/event-stream`
-
-#### 4. Security Considerations
-
-- **Firewall**: Ensure port 8765 is open on your VM
-- **Network Security**: Consider using VPN or private network
-- **Authentication**: Enable OAuth 2.1 authentication for public networks
-- **SSL/TLS**: Use reverse proxy (nginx/traefik) for HTTPS in production
-- **OAuth Configuration**: Use environment variables for sensitive OAuth credentials
 
 #### 5. Production Deployment Example
 
 ```yaml
-# docker-compose.prod.yml
-version: '3.8'
+# docker-compose.yml
 services:
-  mcp:
+  obisidian-mcp:
     build: .
     ports:
       - "8765:8765"
@@ -376,23 +242,6 @@ services:
       timeout: 10s
       retries: 3
 ```
-
-### Other LLM Runtimes
-
-#### Ollama with MCP
-```bash
-# Start the MCP server
-export HOST_VAULT="/path/to/your/obsidian/vault"
-docker compose -f docker-compose.dev.yml up --build
-
-# Configure your LLM to connect to http://localhost:8765/mcp
-```
-
-#### Custom Integration
-The server exposes a standard MCP HTTP interface:
-- **Initialize**: `POST http://localhost:8765/mcp`
-- **Tool calls**: `POST http://localhost:8765/mcp` with `Mcp-Session-Id` header
-- **SSE stream**: `GET http://localhost:8765/mcp` with `Accept: text/event-stream`
 
 ### Available Tools
 
@@ -424,5 +273,5 @@ Once configured, you can ask your LLM to:
 
 ## Notes
 - This server provides comprehensive Obsidian functionality through the Model Context Protocol
-- All tools are thoroughly tested with 87 test cases covering 23 implemented tools
-- Supports ~90% of Obsidian's core capabilities including linking, metadata, search, and visual features
+- All tools are thoroughly tested with API test cases covering all implemented tools
+- Supports most of Obsidian's core capabilities including linking, metadata, search, and visual features
