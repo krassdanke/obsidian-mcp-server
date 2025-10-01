@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Obsidian MCP Server - AI-Powered Obsidian Integration</title>
+    <meta name="description" content="Connect your Obsidian vault to AI assistants and IDEs through the Model Context Protocol. Create, search, and manage your notes with 23 powerful tools.">
+    <meta name="keywords" content="Obsidian, MCP, Model Context Protocol, AI, notes, knowledge management, LLM, Claude, Cursor IDE">
+    <meta name="author" content="Daniel Behnke">
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://obsidian-mcp.dbehnke.dev/">
+    <meta property="og:title" content="Obsidian MCP Server - AI-Powered Obsidian Integration">
+    <meta property="og:description" content="Connect your Obsidian vault to AI assistants and IDEs through the Model Context Protocol. Create, search, and manage your notes with 23 powerful tools.">
+    <meta property="og:image" content="https://obsidian-mcp.dbehnke.dev/og-image.png">
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://obsidian-mcp.dbehnke.dev/">
+    <meta property="twitter:title" content="Obsidian MCP Server - AI-Powered Obsidian Integration">
+    <meta property="twitter:description" content="Connect your Obsidian vault to AI assistants and IDEs through the Model Context Protocol. Create, search, and manage your notes with 23 powerful tools.">
+    <meta property="twitter:image" content="https://obsidian-mcp.dbehnke.dev/og-image.png">
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📝</text></svg>">
+    
+    <!-- Canonical URL -->
+    <link rel="canonical" href="https://obsidian-mcp.dbehnke.dev/">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary-color: #7c3aed;
+            --primary-dark: #5b21b6;
+            --secondary-color: #f3f4f6;
+            --accent-color: #10b981;
+            --text-color: #1f2937;
+            --text-light: #6b7280;
+            --border-color: #e5e7eb;
+            --bg-color: #ffffff;
+            --gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: var(--text-color);
+            background: var(--bg-color);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        /* Header */
+        header {
+            background: var(--gradient);
+            color: white;
+            padding: 4rem 0;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grain" width="100" height="100" patternUnits="userSpaceOnUse"><circle cx="25" cy="25" r="1" fill="white" opacity="0.1"/><circle cx="75" cy="75" r="1" fill="white" opacity="0.1"/><circle cx="50" cy="10" r="0.5" fill="white" opacity="0.1"/><circle cx="10" cy="60" r="0.5" fill="white" opacity="0.1"/><circle cx="90" cy="40" r="0.5" fill="white" opacity="0.1"/></pattern></defs><rect width="100" height="100" fill="url(%23grain)"/></svg>');
+            opacity: 0.3;
+        }
+
+        .hero {
+            position: relative;
+            z-index: 1;
+        }
+
+        .hero h1 {
+            font-size: 3.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .hero p {
+            font-size: 1.25rem;
+            margin-bottom: 2rem;
+            opacity: 0.9;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .cta-buttons {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 0.75rem 2rem;
+            border-radius: 0.5rem;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+        }
+
+        .btn-primary {
+            background: white;
+            color: var(--primary-color);
+        }
+
+        .btn-primary:hover {
+            background: var(--secondary-color);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: white;
+            border-color: white;
+        }
+
+        .btn-secondary:hover {
+            background: white;
+            color: var(--primary-color);
+            transform: translateY(-2px);
+        }
+
+        /* Features Section */
+        .features {
+            padding: 5rem 0;
+            background: var(--secondary-color);
+        }
+
+        .section-title {
+            text-align: center;
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 3rem;
+            color: var(--text-color);
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-top: 3rem;
+        }
+
+        .feature-card {
+            background: white;
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+        }
+
+        .feature-icon {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .feature-card h3 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: var(--text-color);
+        }
+
+        .feature-card p {
+            color: var(--text-light);
+            line-height: 1.6;
+        }
+
+        /* Tools Section */
+        .tools {
+            padding: 5rem 0;
+        }
+
+        .tools-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-top: 3rem;
+        }
+
+        .tool-category {
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            transition: border-color 0.3s ease;
+        }
+
+        .tool-category:hover {
+            border-color: var(--primary-color);
+        }
+
+        .tool-category h4 {
+            color: var(--primary-color);
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+            font-size: 1.1rem;
+        }
+
+        .tool-list {
+            list-style: none;
+            font-size: 0.9rem;
+            color: var(--text-light);
+        }
+
+        .tool-list li {
+            margin-bottom: 0.25rem;
+            padding-left: 1rem;
+            position: relative;
+        }
+
+        .tool-list li::before {
+            content: '•';
+            color: var(--accent-color);
+            position: absolute;
+            left: 0;
+        }
+
+        /* Quick Start Section */
+        .quick-start {
+            padding: 5rem 0;
+            background: var(--secondary-color);
+        }
+
+        .code-block {
+            background: #1f2937;
+            color: #f9fafb;
+            padding: 1.5rem;
+            border-radius: 0.75rem;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            overflow-x: auto;
+            margin: 1rem 0;
+            position: relative;
+        }
+
+        .code-block::before {
+            content: 'bash';
+            position: absolute;
+            top: 0.5rem;
+            right: 1rem;
+            background: var(--primary-color);
+            color: white;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        /* Footer */
+        footer {
+            background: var(--text-color);
+            color: white;
+            padding: 3rem 0;
+            text-align: center;
+        }
+
+        .footer-content {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .footer-section h4 {
+            margin-bottom: 1rem;
+            color: var(--accent-color);
+        }
+
+        .footer-section a {
+            color: #d1d5db;
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
+
+        .footer-section a:hover {
+            color: white;
+        }
+
+        .footer-bottom {
+            border-top: 1px solid #374151;
+            padding-top: 2rem;
+            color: #9ca3af;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 2.5rem;
+            }
+            
+            .hero p {
+                font-size: 1.1rem;
+            }
+            
+            .cta-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .btn {
+                width: 100%;
+                max-width: 300px;
+            }
+        }
+
+        /* Animation */
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .feature-card, .tool-category {
+            animation: fadeInUp 0.6s ease forwards;
+        }
+
+        .feature-card:nth-child(2) { animation-delay: 0.1s; }
+        .feature-card:nth-child(3) { animation-delay: 0.2s; }
+        .feature-card:nth-child(4) { animation-delay: 0.3s; }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <div class="hero">
+                <h1>📝 Obsidian MCP Server</h1>
+                <p>Connect your Obsidian vault to AI assistants and IDEs through the Model Context Protocol. Create, search, and manage your notes with 23 powerful tools.</p>
+                <div class="cta-buttons">
+                    <a href="https://github.com/dthdyver/obsidian-mcp-server" class="btn btn-primary" target="_blank" rel="noopener">View on GitHub</a>
+                    <a href="https://github.com/dthdyver/obsidian-mcp-server#quick-start-production" class="btn btn-secondary" target="_blank" rel="noopener">Get Started</a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <section class="features">
+        <div class="container">
+            <h2 class="section-title">Powerful Features</h2>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🔗</div>
+                    <h3>Wikilinks & Backlinks</h3>
+                    <p>Generate wikilinks with display text, headings, and block references. Find all notes that link to any target automatically.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🏷️</div>
+                    <h3>Tags & Frontmatter</h3>
+                    <p>Manage tags and YAML frontmatter properties. Add, remove, and organize metadata across your entire vault.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📊</div>
+                    <h3>Dataview Integration</h3>
+                    <p>Execute Dataview queries (TABLE, LIST, TASK) directly through AI assistants. Get dynamic insights from your notes.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🎨</div>
+                    <h3>Visual Elements</h3>
+                    <p>Create callouts, embeds, and canvas files with nodes and edges. Generate rich visual content programmatically.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔍</div>
+                    <h3>Advanced Search</h3>
+                    <p>Search with powerful operators (file:, tag:, path:, content:) to find exactly what you need across your vault.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔐</div>
+                    <h3>Secure & Reliable</h3>
+                    <p>OAuth 2.1 authentication, session persistence, and comprehensive security features for production use.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="tools">
+        <div class="container">
+            <h2 class="section-title">23 Powerful Tools</h2>
+            <div class="tools-grid">
+                <div class="tool-category">
+                    <h4>File Operations</h4>
+                    <ul class="tool-list">
+                        <li>add_file</li>
+                        <li>change_file</li>
+                        <li>append_file</li>
+                        <li>delete_file</li>
+                        <li>get_file</li>
+                        <li>list_files</li>
+                        <li>rename_file</li>
+                        <li>move_file</li>
+                    </ul>
+                </div>
+                <div class="tool-category">
+                    <h4>Obsidian Features</h4>
+                    <ul class="tool-list">
+                        <li>create_wikilink</li>
+                        <li>find_backlinks</li>
+                        <li>manage_tags</li>
+                        <li>manage_frontmatter</li>
+                        <li>create_callout</li>
+                        <li>create_embed</li>
+                        <li>create_canvas</li>
+                    </ul>
+                </div>
+                <div class="tool-category">
+                    <h4>Search & Templates</h4>
+                    <ul class="tool-list">
+                        <li>search_notes</li>
+                        <li>search_advanced</li>
+                        <li>execute_dataview</li>
+                        <li>manage_templates</li>
+                        <li>list_notes</li>
+                        <li>read_note</li>
+                        <li>write_note</li>
+                        <li>delete_directory</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="quick-start">
+        <div class="container">
+            <h2 class="section-title">Quick Start</h2>
+            <p style="text-align: center; font-size: 1.1rem; color: var(--text-light); margin-bottom: 2rem;">
+                Get up and running in minutes with Docker
+            </p>
+            <div class="code-block">
+# Pull the latest image
+docker pull dthdyver/obsidian-mcp-server:latest
+
+# Run with your Obsidian vault
+docker run -d \
+  --name obsidian-mcp \
+  -p 8765:8765 \
+  -v /path/to/your/obsidian/vault:/vault:ro \
+  dthdyver/obsidian-mcp-server:latest
+            </div>
+            <div style="text-align: center; margin-top: 2rem;">
+                <a href="https://github.com/dthdyver/obsidian-mcp-server#quick-start-production" class="btn btn-primary" target="_blank" rel="noopener">View Full Documentation</a>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h4>Project</h4>
+                    <p><a href="https://github.com/dthdyver/obsidian-mcp-server">GitHub Repository</a></p>
+                    <p><a href="https://github.com/dthdyver/obsidian-mcp-server/issues">Report Issues</a></p>
+                    <p><a href="https://github.com/dthdyver/obsidian-mcp-server/discussions">Discussions</a></p>
+                </div>
+                <div class="footer-section">
+                    <h4>Resources</h4>
+                    <p><a href="https://modelcontextprotocol.io/">Model Context Protocol</a></p>
+                    <p><a href="https://obsidian.md/">Obsidian</a></p>
+                    <p><a href="https://cursor.sh/">Cursor IDE</a></p>
+                </div>
+                <div class="footer-section">
+                    <h4>Connect</h4>
+                    <p><a href="https://dbehnke.dev">dbehnke.dev</a></p>
+                    <p><a href="https://github.com/dthdyver">GitHub Profile</a></p>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2024 Obsidian MCP Server. Built with ❤️ for the knowledge management community.</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Structured Data for SEO -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Obsidian MCP Server",
+        "description": "Connect your Obsidian vault to AI assistants and IDEs through the Model Context Protocol",
+        "url": "https://obsidian-mcp.dbehnke.dev",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Docker",
+        "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD"
+        },
+        "author": {
+            "@type": "Person",
+            "name": "Daniel Behnke",
+            "url": "https://dbehnke.dev"
+        },
+        "codeRepository": "https://github.com/dthdyver/obsidian-mcp-server",
+        "keywords": ["Obsidian", "MCP", "Model Context Protocol", "AI", "notes", "knowledge management"],
+        "license": "https://github.com/dthdyver/obsidian-mcp-server/blob/main/LICENSE"
+    }
+    </script>
+</body>
+</html>
