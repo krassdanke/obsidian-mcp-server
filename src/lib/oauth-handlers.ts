@@ -2,6 +2,7 @@ import { IncomingMessage, ServerResponse } from 'http';
 import { URL } from 'url';
 import { randomBytes } from 'crypto';
 import { AuthConfig, generateAuthUrl, exchangeCodeForToken, getUserInfo, getProviderConfig } from './auth.js';
+import { SQLiteSessionStore, OAuthTokenData } from './session-store.js';
 
 // Generate secure registration token using crypto
 function generateSecureRegistrationToken(): string {
@@ -15,7 +16,8 @@ function generateSecureRegistrationToken(): string {
 export async function handleOAuthCallback(
   req: IncomingMessage,
   res: ServerResponse,
-  config: AuthConfig
+  config: AuthConfig,
+  sessionStore: SQLiteSessionStore
 ): Promise<void> {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   const code = url.searchParams.get('code');
@@ -25,14 +27,54 @@ export async function handleOAuthCallback(
   if (error) {
     const errorDescription = url.searchParams.get('error_description') || error;
     console.error('OAuth error:', error, errorDescription);
-    res.writeHead(400, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: `OAuth error: ${error}`, error_description: errorDescription }));
+    
+    // Send HTML error page
+    res.writeHead(400, { 'Content-Type': 'text/html' });
+    res.end(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Authentication Error</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 20px; text-align: center; }
+            .error { color: #d32f2f; }
+            .success { color: #2e7d32; }
+          </style>
+        </head>
+        <body>
+          <div class="error">
+            <h1>Authentication Error</h1>
+            <p>${error}: ${errorDescription}</p>
+            <p>This window can be closed.</p>
+          </div>
+        </body>
+      </html>
+    `);
     return;
   }
 
   if (!code) {
-    res.writeHead(400, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Authorization code not provided' }));
+    // Send HTML error page
+    res.writeHead(400, { 'Content-Type': 'text/html' });
+    res.end(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Authentication Error</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 20px; text-align: center; }
+            .error { color: #d32f2f; }
+          </style>
+        </head>
+        <body>
+          <div class="error">
+            <h1>Authentication Error</h1>
+            <p>Authorization code not provided</p>
+            <p>This window can be closed.</p>
+          </div>
+        </body>
+      </html>
+    `);
     return;
   }
 
@@ -43,24 +85,98 @@ export async function handleOAuthCallback(
     // Get user information
     const userInfo = await getUserInfo(tokenResponse.access_token, config);
 
-    // Return success response with token
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
-      success: true,
+    // Store token and user info for retrieval via JSON endpoint
+    const tokenData: OAuthTokenData = {
       access_token: tokenResponse.access_token,
       token_type: tokenResponse.token_type || 'Bearer',
       expires_in: tokenResponse.expires_in,
       refresh_token: tokenResponse.refresh_token || null,
       scope: tokenResponse.scope || config.scope,
       user: userInfo,
-    }));
+      timestamp: Date.now(),
+      expires_at: tokenResponse.expires_in ? Date.now() + (tokenResponse.expires_in * 1000) : undefined
+    };
+
+    // Store the token data in SQLite session store
+    if (state) {
+      sessionStore.setOAuthToken(state, tokenData);
+      console.log(`OAuth token stored for state: ${state} (expires: ${new Date(tokenData.expires_at || 0).toISOString()})`);
+    }
+
+    // Return HTML success page
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Authentication Successful</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 20px; text-align: center; }
+            .success { color: #2e7d32; }
+            .info { color: #1976d2; margin-top: 20px; }
+            .close-btn {
+              background: #2e7d32;
+              color: white;
+              border: none;
+              padding: 10px 20px;
+              border-radius: 4px;
+              cursor: pointer;
+              font-size: 16px;
+              margin-top: 20px;
+            }
+            .close-btn:hover { background: #1b5e20; }
+          </style>
+          <script>
+            // Close window after 3 seconds
+            setTimeout(() => {
+              window.close();
+            }, 3000);
+          </script>
+        </head>
+        <body>
+          <div class="success">
+            <h1>✅ Authentication Successful</h1>
+            <p>Welcome ${userInfo.name} (${userInfo.email})</p>
+            <div class="info">
+              <p><strong>State:</strong> ${state}</p>
+              <p><strong>Provider:</strong> ${config.provider}</p>
+              <p><strong>Token:</strong> ${tokenResponse.access_token.substring(0, 20)}...</p>
+            </div>
+            <p><em>This window will close automatically in 3 seconds</em></p>
+            <button class="close-btn" onclick="window.close()">Close Window</button>
+          </div>
+        </body>
+      </html>
+    `);
+
+    // Also store the token data for Cursor to retrieve via a dedicated endpoint
+    console.log(`OAuth successful for user: ${userInfo.email || userInfo.name} (state: ${state})`);
+    
   } catch (error: any) {
     console.error('OAuth callback error:', error);
-    res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ 
-      error: 'Failed to exchange authorization code',
-      error_description: error.message || 'Internal server error'
-    }));
+    
+    // Send HTML error page
+    res.writeHead(500, { 'Content-Type': 'text/html' });
+    res.end(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Authentication Error</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 20px; text-align: center; }
+            .error { color: #d32f2f; }
+          </style>
+        </head>
+        <body>
+          <div class="error">
+            <h1>Authentication Error</h1>
+            <p>Failed to exchange authorization code</p>
+            <p><strong>Error:</strong> ${error.message || 'Internal server error'}</p>
+            <p>This window can be closed.</p>
+          </div>
+        </body>
+      </html>
+    `);
   }
 }
 
@@ -71,8 +187,8 @@ export function handleOAuthAuth(
   config: AuthConfig
 ): void {
   try {
-    // Generate state parameter for CSRF protection
-    const state = Math.random().toString(36).substring(2, 15);
+    // Generate cryptographically secure state parameter for CSRF protection
+    const state = randomBytes(16).toString('hex');
     
     // Generate authorization URL
     const authUrl = generateAuthUrl(config, state);
@@ -106,6 +222,7 @@ export function handleOAuthMetadata(
     issuer: baseUrl,
     authorization_endpoint: `${baseUrl}/auth`,
     token_endpoint: `${baseUrl}/auth/callback`,
+    token_retrieval_endpoint: `${baseUrl}/auth/token`,
     userinfo_endpoint: `${baseUrl}/userinfo`,
     registration_endpoint: `${baseUrl}/client-registration`,
     response_types_supported: ['code'],
@@ -114,6 +231,10 @@ export function handleOAuthMetadata(
     token_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post'],
     code_challenge_methods_supported: ['S256'], // ForPKCE
     service_documentation: `${baseUrl}/.well-known/oauth-authorization-server`,
+    custom_endpoints: {
+      token_retrieval: `${baseUrl}/auth/token?state={state}`,
+      callback_success_page: `${baseUrl}/auth/callback`
+    }
   };
 
   res.writeHead(200, { 
@@ -149,6 +270,49 @@ export async function handleUserInfo(
   }
 }
 
+
+// Token retrieval endpoint for programmatic access
+export function handleTokenRetrieval(
+  req: IncomingMessage,
+  res: ServerResponse,
+  config: AuthConfig,
+  sessionStore: SQLiteSessionStore
+): void {
+  if (req.method !== 'GET') {
+    res.writeHead(405, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Method not allowed' }));
+    return;
+  }
+
+  const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  const state = url.searchParams.get('state');
+
+  if (!state) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'State parameter required' }));
+    return;
+  }
+
+  // Retrieve token data from session store
+  const tokenData = sessionStore.getOAuthToken(state);
+  if (!tokenData) {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Token not found or expired' }));
+    return;
+  }
+
+  // Clean up the token after retrieval (one-time use)
+  sessionStore.deleteOAuthToken(state);
+
+  // Return the token data with success flag for compatibility
+  const responseData = {
+    success: true,
+    ...tokenData
+  };
+
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(responseData));
+}
 
 // Dynamic Client Registration endpoint (RFC 7591)
 export function handleClientRegistration(

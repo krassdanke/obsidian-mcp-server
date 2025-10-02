@@ -6,6 +6,19 @@ export interface SessionData {
   sessionId: string;
   createdAt: number;
   lastAccessedAt: number;
+  mcpServerData?: string | null;
+  oauthTokens?: string | null;
+}
+
+export interface OAuthTokenData {
+  access_token: string;
+  token_type: string;
+  expires_in?: number;
+  refresh_token?: string | null;
+  scope?: string;
+  user?: any;
+  timestamp: number;
+  expires_at?: number;
 }
 
 export class SQLiteSessionStore {
@@ -38,7 +51,8 @@ export class SQLiteSessionStore {
           sessionId TEXT PRIMARY KEY,
           createdAt INTEGER NOT NULL,
           lastAccessedAt INTEGER NOT NULL,
-          mcpServerData TEXT
+          mcpServerData TEXT,
+          oauthTokens TEXT
         )
       `);
 
@@ -86,11 +100,13 @@ export class SQLiteSessionStore {
     
     // Store in database
     const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO sessions (sessionId, createdAt, lastAccessedAt, mcpServerData)
-      VALUES (?, ?, ?, ?)
+      INSERT OR REPLACE INTO sessions (sessionId, createdAt, lastAccessedAt, mcpServerData, oauthTokens)
+      VALUES (?, ?, ?, ?, ?)
     `);
     
-    stmt.run(sessionId, sessionData.createdAt, sessionData.lastAccessedAt, null);
+    stmt.run(sessionId, sessionData.createdAt, sessionData.lastAccessedAt, 
+              sessionData.mcpServerData || null, 
+              sessionData.oauthTokens || null);
   }
 
   get(sessionId: string): SessionData | undefined {
@@ -132,6 +148,78 @@ export class SQLiteSessionStore {
     const stmt = this.db.prepare('SELECT mcpServerData FROM sessions WHERE sessionId = ?');
     const result = stmt.get(sessionId) as { mcpServerData: string | null } | undefined;
     return result?.mcpServerData || null;
+  }
+
+  // OAuth token management methods
+  setOAuthToken(state: string, tokenData: OAuthTokenData): void {
+    const tokenDataString = JSON.stringify(tokenData);
+    
+    // Store in database
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO sessions (sessionId, createdAt, lastAccessedAt, mcpServerData, oauthTokens)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    
+    stmt.run(state, Date.now(), Date.now(), null, tokenDataString);
+    
+    // Store in memory
+    this.sessions.set(state, {
+      sessionId: state,
+      createdAt: Date.now(),
+      lastAccessedAt: Date.now(),
+      oauthTokens: tokenDataString
+    });
+  }
+
+  getOAuthToken(state: string): OAuthTokenData | null {
+    try {
+      // First check memory
+      let session = this.sessions.get(state);
+      
+      if (!session || !session.oauthTokens) {
+        // Check database
+        const stmt = this.db.prepare('SELECT oauthTokens FROM sessions WHERE sessionId = ?');
+        const result = stmt.get(state) as { oauthTokens: string | null } | undefined;
+        
+        if (!result?.oauthTokens) {
+          return null;
+        }
+        
+        // Load from database into memory
+        session = this.sessions.get(state) || {
+          sessionId: state,
+          createdAt: Date.now(),
+          lastAccessedAt: Date.now(),
+          oauthTokens: result.oauthTokens
+        };
+        this.sessions.set(state, session);
+      }
+      
+      const tokenData = JSON.parse(session.oauthTokens!) as OAuthTokenData;
+      
+      // Check if token is expired
+      if (tokenData.expires_at && Date.now() > tokenData.expires_at) {
+        this.deleteOAuthToken(state);
+        return null;
+      }
+      
+      // Update last accessed time
+      this.updateLastAccessed(state);
+      
+      return tokenData;
+    } catch (error) {
+      console.error(`[SessionStore] Failed to parse OAuth token for state ${state}:`, error);
+      this.deleteOAuthToken(state);
+      return null;
+    }
+  }
+
+  deleteOAuthToken(state: string): boolean {
+    const deleted = this.sessions.delete(state);
+    if (deleted) {
+      this.deleteFromDatabase(state);
+    }
+    return deleted;
   }
 
   private deleteFromDatabase(sessionId: string): void {
