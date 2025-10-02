@@ -181,6 +181,21 @@ Use the dev Compose overlay to run watch mode inside Docker, mounting your sourc
 
 The MCP server supports OAuth 2.1 authentication with multiple providers. Authentication is **optional** and can be enabled via environment variables.
 
+#### Quick Setup
+
+**Enable authentication:**
+```bash
+export AUTH_ENABLED=true
+export AUTH_PROVIDER=google  # or github, microsoft, generic-oauth
+export OAUTH_CLIENT_ID=your_client_id
+export OAUTH_CLIENT_SECRET=your_client_secret
+```
+
+**Provider-specific default scopes are automatically configured:**
+- **Google/Microsoft:** `openid email profile`
+- **GitHub:** `user:email read:user`
+- **Generic:** `openid email profile`
+
 #### Environment Variables
 
 | Variable | Description | Default | Required |
@@ -189,11 +204,10 @@ The MCP server supports OAuth 2.1 authentication with multiple providers. Authen
 | `AUTH_PROVIDER` | OAuth provider (`google`, `github`, `microsoft`, `generic-oauth`) | - | Yes (if enabled) |
 | `OAUTH_CLIENT_ID` | OAuth client ID | - | Yes (if enabled) |
 | `OAUTH_CLIENT_SECRET` | OAuth client secret | - | Yes (if enabled) |
-| `OAUTH_ISSUER` | OAuth issuer URL | - | Yes (if enabled) |
-| `OAUTH_SCOPE` | OAuth scopes | `openid email profile` | No |
-| `OAUTH_REDIRECT_URI` | OAuth redirect URI | `http://localhost:8765/auth/callback` | No |
+| `OAUTH_SCOPE` | OAuth scopes (auto-configured per provider) | Provider-specific | No |
+| `OAUTH_REDIRECT_URI` | OAuth redirect URI | Auto-generated | No |
 
-#### Provider-Specific Configuration
+#### Provider Configuration
 
 **Google OAuth:**
 ```bash
@@ -201,9 +215,7 @@ export AUTH_ENABLED=true
 export AUTH_PROVIDER=google
 export OAUTH_CLIENT_ID=your_google_client_id
 export OAUTH_CLIENT_SECRET=your_google_client_secret
-export OAUTH_ISSUER=https://accounts.google.com
-export OAUTH_SCOPE=openid email profile
-export OAUTH_REDIRECT_URI=http://localhost:8765/auth/callback
+# Default scope: openid email profile
 ```
 
 **GitHub OAuth:**
@@ -212,9 +224,7 @@ export AUTH_ENABLED=true
 export AUTH_PROVIDER=github
 export OAUTH_CLIENT_ID=your_github_client_id
 export OAUTH_CLIENT_SECRET=your_github_client_secret
-export OAUTH_ISSUER=https://github.com
-export OAUTH_SCOPE=user:email
-export OAUTH_REDIRECT_URI=http://localhost:8765/auth/callback
+# Default scope: user:email read:user
 ```
 
 **Microsoft OAuth:**
@@ -223,9 +233,7 @@ export AUTH_ENABLED=true
 export AUTH_PROVIDER=microsoft
 export OAUTH_CLIENT_ID=your_microsoft_client_id
 export OAUTH_CLIENT_SECRET=your_microsoft_client_secret
-export OAUTH_ISSUER=https://login.microsoftonline.com/common/v2.0
-export OAUTH_SCOPE=openid email profile
-export OAUTH_REDIRECT_URI=http://localhost:8765/auth/callback
+# Default scope: openid email profile
 ```
 
 **Generic OAuth Provider:**
@@ -238,8 +246,7 @@ export OAUTH_ISSUER=https://your-provider.com
 export OAUTH_AUTHORIZATION_ENDPOINT=https://your-provider.com/oauth/authorize
 export OAUTH_TOKEN_ENDPOINT=https://your-provider.com/oauth/token
 export OAUTH_USERINFO_ENDPOINT=https://your-provider.com/oauth/userinfo
-export OAUTH_SCOPE=openid email profile
-export OAUTH_REDIRECT_URI=http://localhost:8765/auth/callback
+# Default scope: openid email profile
 ```
 
 #### OAuth Endpoints
@@ -249,25 +256,53 @@ When authentication is enabled, the server exposes these endpoints:
 - **Authorization**: `GET /auth` - Redirects to OAuth provider
 - **Callback**: `GET /auth/callback` - Handles OAuth callback
 - **User Info**: `GET /userinfo` - Returns user information (requires Bearer token)
-- **Metadata**: `GET /.well-known/oauth-authorization-server` - OAuth metadata discovery
-- **JWKS**: `GET /.well-known/jwks.json` - JSON Web Key Set
+- **Metadata Discovery**: `GET /.well-known/oauth-authorization-server` - OAuth server metadata (RFC 8414)
+- **Client Registration**: `POST /client-registration` - Dynamic client registration (RFC 7591)
+
+#### MCP Client Integration
+
+The server supports automatic OAuth discovery for MCP clients like Cursor:
+
+**For Cursor IDE:**
+```json
+{
+  "mcpServers": {
+    "obsidian-network": {
+      "url": "https://your-domain.com/mcp"
+    }
+  }
+}
+```
+
+Cursor will automatically:
+1. Discover OAuth metadata from `/.well-known/oauth-authorization-server`
+2. Register as an OAuth client via `/client-registration`
+3. Redirect you to complete authentication
+4. Use the access token for all MCP requests
 
 #### Usage with Authentication
 
 1. **Enable authentication** by setting `AUTH_ENABLED=true`
-2. **Configure your OAuth provider** with the appropriate environment variables
-3. **Start the server** with authentication enabled
-4. **Access the MCP endpoint** with a valid Bearer token:
+2. **Gather your OAuth provider credentials** from:
+   - [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
+   - [GitHub Developer Settings](https://github.com/settings/developers)
+   - [Azure Portal](https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade)
+3. **Set redirect URI** to `https://your-domain.com/auth/callback`
+4. **Start the server** with authentication enabled
 
+**Test the authentication flow:**
 ```bash
-# Get authorization URL
-curl http://localhost:8765/auth
+# Test metadata discovery
+curl https://your-domain.com/.well-known/oauth-authorization-server
 
-# After OAuth flow, use the access token
+# Start OAuth flow
+curl https://your-domain.com/auth
+
+# Access MCP with valid Bearer token
 curl -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
      -H "Content-Type: application/json" \
      -d '{"jsonrpc": "2.0", "method": "initialize", "params": {...}}' \
-     http://localhost:8765/mcp
+     https://your-domain.com/mcp
 ```
 
 #### Security Notes
