@@ -14,8 +14,6 @@ const AuthConfigSchema = z.object({
   authorizationEndpoint: z.string().optional(),
   tokenEndpoint: z.string().optional(),
   userInfoEndpoint: z.string().optional(),
-  // JWKS endpoint for token validation
-  jwksUri: z.string().optional(),
 }).refine((data) => {
   // If auth is enabled, provider must be specified
   if (data.enabled && !data.provider) {
@@ -36,7 +34,6 @@ const PROVIDER_CONFIGS = {
     authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
     tokenEndpoint: 'https://oauth2.googleapis.com/token',
     userInfoEndpoint: 'https://www.googleapis.com/oauth2/v2/userinfo',
-    jwksUri: 'https://www.googleapis.com/oauth2/v3/certs',
     scope: 'openid email profile',
   },
   github: {
@@ -44,14 +41,21 @@ const PROVIDER_CONFIGS = {
     authorizationEndpoint: 'https://github.com/login/oauth/authorize',
     tokenEndpoint: 'https://github.com/login/oauth/access_token',
     userInfoEndpoint: 'https://api.github.com/user',
-    scope: 'user:email',
+    userEmailEndpoint: 'https://api.github.com/user/emails',
+    scope: 'user:email read:user',
   },
   microsoft: {
     issuer: 'https://login.microsoftonline.com/common/v2.0',
     authorizationEndpoint: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
     tokenEndpoint: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
     userInfoEndpoint: 'https://graph.microsoft.com/oidc/userinfo',
-    jwksUri: 'https://login.microsoftonline.com/common/discovery/v2.0/keys',
+    scope: 'openid email profile',
+  },
+  'generic-oauth': {
+    issuer: 'https://generic-oauth-provider.com',
+    authorizationEndpoint: 'https://generic-oauth-provider.com/oauth/authorize',
+    tokenEndpoint: 'https://generic-oauth-provider.com/oauth/token',
+    userInfoEndpoint: 'https://generic-oauth-provider.com/userinfo',
     scope: 'openid email profile',
   },
 } as const;
@@ -66,20 +70,27 @@ export function loadAuthConfig(): AuthConfig {
     clientId: process.env.OAUTH_CLIENT_ID,
     clientSecret: process.env.OAUTH_CLIENT_SECRET,
     issuer: process.env.OAUTH_ISSUER,
-    scope: process.env.OAUTH_SCOPE || 'openid email profile',
+    scope: process.env.OAUTH_SCOPE,
     redirectUri: process.env.OAUTH_REDIRECT_URI,
     authorizationEndpoint: process.env.OAUTH_AUTHORIZATION_ENDPOINT,
     tokenEndpoint: process.env.OAUTH_TOKEN_ENDPOINT,
     userInfoEndpoint: process.env.OAUTH_USERINFO_ENDPOINT,
-    jwksUri: process.env.OAUTH_JWKS_URI,
   };
 
-  return AuthConfigSchema.parse(config);
+  const validatedConfig = AuthConfigSchema.parse(config);
+
+  // Additional validation: if auth is enabled, ensure required credentials are provided
+  if (validatedConfig.enabled && (!validatedConfig.clientId || !validatedConfig.clientSecret)) {
+    throw new Error('OAuth authentication is enabled but OAUTH_CLIENT_ID and OAUTH_CLIENT_SECRET are not provided');
+  }
+
+  return validatedConfig;
 }
 
 export function getProviderConfig(provider: string) {
   return PROVIDER_CONFIGS[provider as keyof typeof PROVIDER_CONFIGS] || null;
 }
+
 
 // Token validation result
 export interface TokenValidationResult {
@@ -105,7 +116,7 @@ export async function validateToken(token: string, config: AuthConfig): Promise<
 
   // For now, implement a simple validation
   // In a real implementation, you would:
-  // 1. Validate JWT signature using JWKS
+  // 1. Validate token format and basic checks
   // 2. Check token expiration
   // 3. Verify issuer and audience
   // 4. Extract user information from claims
@@ -186,11 +197,13 @@ export function generateAuthUrl(config: AuthConfig, state: string): string {
   return `${providerConfig.authorizationEndpoint}?${params.toString()}`;
 }
 
-// Exchange authorization code for access token
-export async function exchangeCodeForToken(
-  code: string,
-  config: AuthConfig
-): Promise<{ access_token: string; token_type: string; expires_in?: number }> {
+// Generate OAuth authorization URL for specific client request
+export function generateAuthUrlForClient(
+  config: AuthConfig,
+  state: string,
+  codeChallenge?: string | null,
+  codeChallengeMethod?: string | null
+): string {
   if (!config.enabled || !config.provider) {
     throw new Error('Authentication not configured');
   }
@@ -199,6 +212,47 @@ export async function exchangeCodeForToken(
   if (!providerConfig) {
     throw new Error(`Unsupported provider: ${config.provider}`);
   }
+
+  // Always use the server's registered redirect_uri (what's configured with the OAuth provider)
+  // The client's redirect_uri is stored separately and used later in the callback
+  const serverRedirectUri = config.redirectUri || 'http://localhost:8765/auth/callback';
+
+  const params = new URLSearchParams({
+    client_id: config.clientId!,
+    redirect_uri: serverRedirectUri,  // Use server's registered URI, not client's URI
+    response_type: 'code',
+    scope: config.scope,
+    state,
+  });
+
+  // Note: We store PKCE parameters but don't pass them to Google
+  // because we can't provide the code_verifier during token exchange
+  // PKCE is handled at the client level in our proxy architecture
+
+  return `${providerConfig.authorizationEndpoint}?${params.toString()}`;
+}
+
+// Exchange authorization code for access token
+export async function exchangeCodeForToken(
+  code: string,
+  config: AuthConfig
+): Promise<{ 
+  access_token: string; 
+  token_type: string; 
+  expires_in?: number; 
+  refresh_token?: string;
+  scope?: string;
+}> {
+  if (!config.enabled || !config.provider) {
+    throw new Error('Authentication not configured');
+  }
+
+  const providerConfig = getProviderConfig(config.provider);
+  if (!providerConfig) {
+    throw new Error(`Unsupported provider: ${config.provider}`);
+  }
+
+  const redirectUri = config.redirectUri || `http://${process.env.HOST || 'localhost'}:${process.env.PORT || '8765'}/auth/callback`;
 
   const response = await fetch(providerConfig.tokenEndpoint, {
     method: 'POST',
@@ -211,15 +265,23 @@ export async function exchangeCodeForToken(
       client_secret: config.clientSecret!,
       code,
       grant_type: 'authorization_code',
-      redirect_uri: config.redirectUri || 'http://localhost:8765/auth/callback',
-    }),
+      redirect_uri: redirectUri } as any).toString(),
   });
 
   if (!response.ok) {
-    throw new Error(`Token exchange failed: ${response.statusText}`);
+    const errorText = await response.text();
+    console.error('Token exchange failed:', response.status, errorText);
+    throw new Error(`Token exchange failed: ${response.statusText} - ${errorText}`);
   }
 
-  return response.json();
+  const tokenData = await response.json();
+  
+  // Handle different token response formats
+  if (tokenData.error) {
+    throw new Error(`Token exchange error: ${tokenData.error_description || tokenData.error}`);
+  }
+
+  return tokenData;
 }
 
 // Get user information from provider

@@ -24,7 +24,6 @@ services:
       - OAUTH_AUTHORIZATION_ENDPOINT=${OAUTH_AUTHORIZATION_ENDPOINT:-}
       - OAUTH_TOKEN_ENDPOINT=${OAUTH_TOKEN_ENDPOINT:-}
       - OAUTH_USERINFO_ENDPOINT=${OAUTH_USERINFO_ENDPOINT:-}
-      - OAUTH_JWKS_URI=${OAUTH_JWKS_URI:-}
     ports:
       - "${PORT:-8765}:${PORT:-8765}"
     # When deploying, mount your vault at the same path as VAULT_PATH, e.g.:
