@@ -197,6 +197,41 @@ export function generateAuthUrl(config: AuthConfig, state: string): string {
   return `${providerConfig.authorizationEndpoint}?${params.toString()}`;
 }
 
+// Generate OAuth authorization URL for specific client request
+export function generateAuthUrlForClient(
+  config: AuthConfig,
+  state: string,
+  codeChallenge?: string | null,
+  codeChallengeMethod?: string | null
+): string {
+  if (!config.enabled || !config.provider) {
+    throw new Error('Authentication not configured');
+  }
+
+  const providerConfig = getProviderConfig(config.provider);
+  if (!providerConfig) {
+    throw new Error(`Unsupported provider: ${config.provider}`);
+  }
+
+  // Always use the server's registered redirect_uri (what's configured with the OAuth provider)
+  // The client's redirect_uri is stored separately and used later in the callback
+  const serverRedirectUri = config.redirectUri || 'http://localhost:8765/auth/callback';
+
+  const params = new URLSearchParams({
+    client_id: config.clientId!,
+    redirect_uri: serverRedirectUri,  // Use server's registered URI, not client's URI
+    response_type: 'code',
+    scope: config.scope,
+    state,
+  });
+
+  // Note: We store PKCE parameters but don't pass them to Google
+  // because we can't provide the code_verifier during token exchange
+  // PKCE is handled at the client level in our proxy architecture
+
+  return `${providerConfig.authorizationEndpoint}?${params.toString()}`;
+}
+
 // Exchange authorization code for access token
 export async function exchangeCodeForToken(
   code: string,

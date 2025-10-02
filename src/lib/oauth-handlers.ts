@@ -1,8 +1,8 @@
 import { IncomingMessage, ServerResponse } from 'http';
 import { URL } from 'url';
 import { randomBytes } from 'crypto';
-import { AuthConfig, generateAuthUrl, exchangeCodeForToken, getUserInfo, getProviderConfig } from './auth.js';
-import { SQLiteSessionStore, OAuthTokenData } from './session-store.js';
+import { AuthConfig, generateAuthUrl, generateAuthUrlForClient, exchangeCodeForToken, getUserInfo, getProviderConfig } from './auth.js';
+import { SQLiteSessionStore, OAuthTokenData, OAuthAuthRequestData } from './session-store.js';
 
 // Generate secure registration token using crypto
 function generateSecureRegistrationToken(): string {
@@ -103,51 +103,74 @@ export async function handleOAuthCallback(
       console.log(`OAuth token stored for state: ${state} (expires: ${new Date(tokenData.expires_at || 0).toISOString()})`);
     }
 
-    // Return HTML success page
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    res.end(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Authentication Successful</title>
-          <style>
-            body { font-family: Arial, sans-serif; padding: 20px; text-align: center; }
-            .success { color: #2e7d32; }
-            .info { color: #1976d2; margin-top: 20px; }
-            .close-btn {
-              background: #2e7d32;
-              color: white;
-              border: none;
-              padding: 10px 20px;
-              border-radius: 4px;
-              cursor: pointer;
-              font-size: 16px;
-              margin-top: 20px;
-            }
-            .close-btn:hover { background: #1b5e20; }
-          </style>
-          <script>
-            // Close window after 3 seconds
-            setTimeout(() => {
-              window.close();
-            }, 3000);
-          </script>
-        </head>
-        <body>
-          <div class="success">
-            <h1>✅ Authentication Successful</h1>
-            <p>Welcome ${userInfo.name} (${userInfo.email})</p>
-            <div class="info">
-              <p><strong>State:</strong> ${state}</p>
-              <p><strong>Provider:</strong> ${config.provider}</p>
-              <p><strong>Token:</strong> ${tokenResponse.access_token.substring(0, 20)}...</p>
+    // Get the original authorization request to retrieve the redirect_uri
+    const authRequest = state ? sessionStore.getOAuthAuthRequest(state) : null;
+    
+    if (authRequest && authRequest.redirect_uri && code && state) {
+      // Redirect back to the original client's redirect_uri with the authorization code
+      console.log(`✅ Redirecting to original redirect_uri: ${authRequest.redirect_uri}`);
+      
+      // Handle custom schemes like cursor:// by constructing the full URL manually
+      const redirectParams = new URLSearchParams({ code, state });
+      const redirectUrl = `${authRequest.redirect_uri}?${redirectParams.toString()}`;
+      
+      res.writeHead(302, { 'Location': redirectUrl });
+      res.end();
+    } else {
+      // Debug why redirect failed
+      console.log(`❌ Redirect failed:`, {
+        state: state ? `${state.substring(0, 8)}...` : 'none',
+        code: code ? `${code.substring(0, 8)}...` : 'none', 
+        authRequest: authRequest ? 'found' : 'missing',
+        redirect_uri: authRequest?.redirect_uri || 'none'
+      });
+      
+      // Fallback: Show HTML success page if no redirect_uri found
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Authentication Successful</title>
+            <style>
+              body { font-family: Arial, sans-serif; padding: 20px; text-align: center; }
+              .success { color: #2e7d32; }
+              .info { color: #1976d2; margin-top: 20px; }
+              .close-btn {
+                background: #2e7d32;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 16px;
+                margin-top: 20px;
+              }
+              .close-btn:hover { background: #1b5e20; }
+            </style>
+            <script>
+              // Close window after 3 seconds
+              setTimeout(() => {
+                window.close();
+              }, 3000);
+            </script>
+          </head>
+          <body>
+            <div class="success">
+              <h1>✅ Authentication Successful</h1>
+              <p>Welcome ${userInfo.name} (${userInfo.email})</p>
+              <div class="info">
+                <p><strong>State:</strong> ${state}</p>
+                <p><strong>Provider:</strong> ${config.provider}</p>
+                <p><strong>Token:</strong> ${tokenResponse.access_token.substring(0, 20)}...</p>
+              </div>
+              <p><em>This window will close automatically in 3 seconds</em></p>
+              <button class="close-btn" onclick="window.close()">Close Window</button>
             </div>
-            <p><em>This window will close automatically in 3 seconds</em></p>
-            <button class="close-btn" onclick="window.close()">Close Window</button>
-          </div>
-        </body>
-      </html>
-    `);
+          </body>
+        </html>
+      `);
+    }
 
     // Also store the token data for Cursor to retrieve via a dedicated endpoint
     console.log(`OAuth successful for user: ${userInfo.email || userInfo.name} (state: ${state})`);
@@ -184,14 +207,71 @@ export async function handleOAuthCallback(
 export function handleOAuthAuth(
   req: IncomingMessage,
   res: ServerResponse,
-  config: AuthConfig
+  config: AuthConfig,
+  sessionStore: SQLiteSessionStore
 ): void {
   try {
-    // Generate cryptographically secure state parameter for CSRF protection
-    const state = randomBytes(16).toString('hex');
+    const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
     
-    // Generate authorization URL
-    const authUrl = generateAuthUrl(config, state);
+    // Extract OAuth parameters from the request
+    const clientId = url.searchParams.get('client_id');
+    const redirectUri = url.searchParams.get('redirect_uri');
+    const responseType = url.searchParams.get('response_type');
+    const scope = url.searchParams.get('scope');
+    const state = url.searchParams.get('state') || randomBytes(16).toString('hex');
+    const codeChallenge = url.searchParams.get('code_challenge');
+    const codeChallengeMethod = url.searchParams.get('code_challenge_method');
+    
+    // Validate required parameters
+    if (!clientId || !redirectUri || !responseType) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ 
+        error: 'invalid_request',
+        error_description: 'Missing required parameters: client_id, redirect_uri, or response_type'
+      }));
+      return;
+    }
+    
+    // Validate response_type (we only support 'code')
+    if (responseType !== 'code') {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ 
+        error: 'unsupported_response_type',
+        error_description: 'Only response_type=code is supported'
+      }));
+      return;
+    }
+    
+    // Validate client_id matches our configuration
+    if (clientId !== config.clientId) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ 
+        error: 'invalid_client',
+        error_description: 'Invalid client_id'
+      }));
+      return;
+    }
+    
+    // Store authorization request data for later retrieval in callback
+    const authRequestData: OAuthAuthRequestData = {
+      redirect_uri: redirectUri,
+      client_id: clientId,
+      scope: scope || undefined,
+      code_challenge: codeChallenge || undefined,
+      code_challenge_method: codeChallengeMethod || undefined,
+      timestamp: Date.now()
+    };
+    
+    sessionStore.setOAuthAuthRequest(state, authRequestData);
+    console.log(`OAuth auth request stored for state: ${state} (redirect_uri: ${redirectUri})`);
+    
+    // Generate authorization URL using extracted parameters (server's redirect_uri will be used)
+    const authUrl = generateAuthUrlForClient(
+      config, 
+      state, 
+      codeChallenge, 
+      codeChallengeMethod
+    );
     
     // Redirect to OAuth provider
     res.writeHead(302, { 'Location': authUrl });
@@ -199,7 +279,7 @@ export function handleOAuthAuth(
   } catch (error: any) {
     console.error('OAuth auth error:', error);
     res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Failed to generate authorization URL' }));
+    res.end(JSON.stringify({ error: 'server_error', error_description: 'Internal server error' }));
   }
 }
 

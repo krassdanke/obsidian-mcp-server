@@ -86,7 +86,7 @@ export class OAuthRouter extends HttpRouter {
   private createAuthHandler() {
     return async (req: IncomingMessage, res: ServerResponse): Promise<boolean> => {
       try {
-        handleOAuthAuth(req, res, this.authConfig);
+        handleOAuthAuth(req, res, this.authConfig, this.sessionStore);
         return true;
       } catch (error: any) {
         console.error('[OAuthRouter] Auth route error:', error);

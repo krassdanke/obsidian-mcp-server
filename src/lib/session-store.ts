@@ -21,6 +21,15 @@ export interface OAuthTokenData {
   expires_at?: number;
 }
 
+export interface OAuthAuthRequestData {
+  redirect_uri: string;
+  client_id: string;
+  scope?: string;
+  code_challenge?: string;
+  code_challenge_method?: string;
+  timestamp: number;
+}
+
 export class SQLiteSessionStore {
   private db: Database.Database;
   private sessions: Map<string, SessionData> = new Map();
@@ -154,19 +163,25 @@ export class SQLiteSessionStore {
   setOAuthToken(state: string, tokenData: OAuthTokenData): void {
     const tokenDataString = JSON.stringify(tokenData);
     
-    // Store in database
+    // Preserve existing authorization request data if it exists
+    const existingSession = this.sessions.get(state);
+    
+    // Store in database - preserve existing mcpServerData
     const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO sessions (sessionId, createdAt, lastAccessedAt, mcpServerData, oauthTokens)
-      VALUES (?, ?, ?, ?, ?)
+      UPDATE sessions SET 
+        lastAccessedAt = ?, 
+        oauthTokens = ? 
+      WHERE sessionId = ?
     `);
     
-    stmt.run(state, Date.now(), Date.now(), null, tokenDataString);
+    stmt.run(Date.now(), tokenDataString, state);
     
-    // Store in memory
+    // Store in memory - preserve existing mcpServerData
     this.sessions.set(state, {
       sessionId: state,
-      createdAt: Date.now(),
+      createdAt: existingSession?.createdAt || Date.now(),
       lastAccessedAt: Date.now(),
+      mcpServerData: existingSession?.mcpServerData || null,
       oauthTokens: tokenDataString
     });
   }
@@ -215,6 +230,66 @@ export class SQLiteSessionStore {
   }
 
   deleteOAuthToken(state: string): boolean {
+    const deleted = this.sessions.delete(state);
+    if (deleted) {
+      this.deleteFromDatabase(state);
+    }
+    return deleted;
+  }
+
+  // OAuth authorization request data management
+  setOAuthAuthRequest(state: string, authRequestData: OAuthAuthRequestData): void {
+    const authRequestString = JSON.stringify(authRequestData);
+    
+    // Store in database 
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO sessions (sessionId, createdAt, lastAccessedAt, mcpServerData, oauthTokens)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    
+    stmt.run(state, Date.now(), Date.now(), authRequestString, null);
+    
+    // Store in memory
+    this.sessions.set(state, {
+      sessionId: state,
+      createdAt: Date.now(),
+      lastAccessedAt: Date.now(),
+      mcpServerData: authRequestString
+    });
+  }
+
+  getOAuthAuthRequest(state: string): OAuthAuthRequestData | null {
+    try {
+      // First check memory
+      let session = this.sessions.get(state);
+      
+      if (!session || !session.mcpServerData) {
+        // Check database
+        const stmt = this.db.prepare('SELECT mcpServerData FROM sessions WHERE sessionId = ?');
+        const result = stmt.get(state) as { mcpServerData: string | null } | undefined;
+        
+        if (!result?.mcpServerData) {
+          return null;
+        }
+        
+        // Load from database into memory
+        session = this.sessions.get(state) || {
+          sessionId: state,
+          createdAt: Date.now(),
+          lastAccessedAt: Date.now(),
+          mcpServerData: result.mcpServerData
+        };
+        this.sessions.set(state, session);
+      }
+      
+      return JSON.parse(session.mcpServerData!) as OAuthAuthRequestData;
+    } catch (error) {
+      console.error(`[SessionStore] Failed to parse OAuth auth request for state ${state}:`, error);
+      return null;
+    }
+  }
+
+  deleteOAuthAuthRequest(state: string): boolean {
     const deleted = this.sessions.delete(state);
     if (deleted) {
       this.deleteFromDatabase(state);
